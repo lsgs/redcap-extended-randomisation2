@@ -1,0 +1,103 @@
+{
+	"name": "Extended Randomization",
+	"description": "Alternative randomization algorithms beyond REDCap's built-in stratified permuted block randomization. Enable randomization for your project and configure on the Randomization page.",
+	"namespace": "MCRI\\ExtendedRandomisation2",
+	"authors": [
+		{
+			"name": "Luke Stevens",
+			"email": "luke.stevens@mcri.edu.au",
+			"institution": "Murdoch Children's Research Institute"
+		}
+	],
+    "framework-version": 16,
+    "compatibility": { "redcap-version-min": "14.7.0" },
+    "auth-ajax-actions": [ "save-randomiser-config" ],
+    "project-settings": [
+        {
+            "key": "section-f",
+            "name": "<div class=\"header\" style=\"position:relative;left:-8px;width:733px\">Failure Alerts</div>",
+            "type": "descriptive"
+        },
+        {
+            "key": "fail-alert-email",
+            "name": "Recipient for error alert email",
+            "required": false,
+            "type": "email",
+            "repeatable": true
+        },
+        {
+            "key": "section-c",
+            "name": "<div class=\"header\" style=\"position:relative;left:-8px;width:733px\">Module Configuration Options</div>",
+            "type": "descriptive"
+        },
+        {
+            "name": "Enable batch randomization (Development)<br><span class=\"text-muted\"><ul><li>Adds new tab to Randomization page.</li><li>Requires \"Dashboard\" and \"Randomize\" permissions.</li><li>Administrator may enable batch randomization for Production status.</li></ul>",
+            "key": "enable-batch-dev",
+            "type": "checkbox"
+        },
+        {
+            "name": "Seed for random number generation (integer, optional)<br><span class=\"text-muted\">Set and forget for project: do not edit once randomizations have commenced</span>",
+            "key": "seed",
+            "type": "text",
+            "validation": "integer"
+        },
+        {
+            "name": "Seed sequence",
+            "key": "seed-sequence",
+            "type": "text",
+            "validation": "integer",
+            "hidden": true
+        },
+        {
+            "name": "Delay module execution<br><span class=\"text-muted\">Use this option to have this module executed for each hook as late as possible in the sequence of modules implementing the `randomize_record()` hook.",
+            "key": "delay",
+            "type": "checkbox"
+        },
+        {
+            "key": "section-s",
+            "name": "<div class=\"header\" style=\"position:relative;left:-8px;width:733px\">Configuration and State Storage (Administrator-Only)</div>",
+            "type": "descriptive",
+            "super-users-only": true
+        },
+        {
+            "name": "Enable batch randomization (Production)",
+            "key": "enable-batch-prod",
+            "type": "checkbox",
+            "super-users-only": true
+        },
+        {
+            "key": "project-rand-config",
+            "name": "Extended Randomization Configuration",
+            "required": false,
+            "type": "sub_settings",
+            "repeatable": true,
+            "super-users-only": true,
+            "sub_settings": [
+                {
+                    "key": "rand-id",
+                    "name": "Randomization unique id",
+                    "required": false,
+                    "type": "text"
+                },
+                {
+                    "key": "rand-class",
+                    "name": "Randomization option",
+                    "required": false,
+                    "type": "text"
+                },
+                {
+                    "key": "rand-config",
+                    "name": "Randomization configuration settings",
+                    "required": false,
+                    "type": "textarea"
+                },
+                {
+                    "key": "rand-state",
+                    "name": "Randomization state storage",
+                    "required": false,
+                    "type": "textarea"
+                }
+            ]
+        }
+    ]
+}
