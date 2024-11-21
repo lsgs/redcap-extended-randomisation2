@@ -19,7 +19,7 @@ class RandomInteger extends AbstractRandomiser {
     public function randomise() {
         $r = $this->getRandomNumber($this->config_array['min'], $this->config_array['max'], true);
         $tableCol = ($this->isBlinded) ? 'target_field' : 'target_field_alternate';
-        \REDCap::updateRandomizationTableEntry($this->project_id, $this->rid, $this->next_aid, $tableCol, $r);
+        \REDCap::updateRandomizationTableEntry($this->project_id, $this->rid, $this->next_aid, $tableCol, $r, $this->module->getModuleName());
         $this->moduleLogEvent("Allocation id {$this->next_aid} allocated random number $r");
         return null;
     }

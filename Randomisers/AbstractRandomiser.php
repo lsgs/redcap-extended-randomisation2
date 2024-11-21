@@ -88,7 +88,7 @@ abstract class AbstractRandomiser {
 
     protected function allocateAid($aid) {
         try {
-            $result = \REDCap::updateRandomizationTableEntry($this->project_id, $this->rid, $aid, 'is_used_by', $this->record);
+            $result = \REDCap::updateRandomizationTableEntry($this->project_id, $this->rid, $aid, 'is_used_by', $this->record, $this->module->getModuleName());
             $message = '';
         } catch (\Throwable $th) {
             $result = false;
@@ -123,9 +123,11 @@ abstract class AbstractRandomiser {
         } else {
             // if seed specified then use the nth in sequence corresponding to seed, then increment stored counter
             mt_srand($this->seed);
-            $seq = array_fill(0, $this->seedSequence, (float)mt_rand());
-            $rn = $seq[$this->seedSequence];
-            $this->module->setProjectSetting('seed-sequence', $this->seedSequence++);
+            $this->seedSequence++;
+            for ($i=0; $i < $this->seedSequence; $i++) { 
+                $rn = (float)mt_rand();
+            }
+            $this->module->setProjectSetting('seed-sequence', "{$this->seedSequence}");
         }
 
         $out = $min + (($max-$min) * $rn/(float)mt_getrandmax());
@@ -134,8 +136,8 @@ abstract class AbstractRandomiser {
 
     protected function moduleLogEvent($message) {
         $randomiser = static::getClassNameWithoutNamespace();
-        $description = $this->module->PREFIX." ($randomiser): $message";
-        \REDCap::logEvent($description, '', '', $this->record, $this->attrs['targetEvent']);
+        $description = "$randomiser: $message";
+        \REDCap::logEvent($this->module->getModuleName(), $description, '', $this->record, $this->attrs['targetEvent']);
     }
 
     /**

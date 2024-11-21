@@ -11,7 +11,7 @@
 	],
     "framework-version": 16,
     "compatibility": { "redcap-version-min": "14.7.0" },
-    "auth-ajax-actions": [ "save-randomiser-config" ],
+    "auth-ajax-actions": [ "save-randomiser-config", "randomise-record" ],
     "project-settings": [
         {
             "key": "section-f",
@@ -42,11 +42,10 @@
             "validation": "integer"
         },
         {
-            "name": "Seed sequence",
+            "name": "Seed sequence (positive integer<br><em>DO NOT EDIT</em> except to delete value after erasing all project data",
             "key": "seed-sequence",
             "type": "text",
-            "validation": "integer",
-            "hidden": true
+            "validation": "integer"
         },
         {
             "name": "Delay module execution<br><span class=\"text-muted\">Use this option to have this module executed for each hook as late as possible in the sequence of modules implementing the `randomize_record()` hook.",
