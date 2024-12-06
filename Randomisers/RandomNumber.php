@@ -14,7 +14,7 @@ class RandomNumber extends AbstractRandomiser {
     public const USE_WITH_OPEN = true;
     public const USE_WITH_CONCEALED = true;
     protected const LABEL = 'Random Number (0-1)';
-    protected const DESC = 'Generate a random number between 0 and 1';
+    protected const DESC = 'Generate a random number floating point number between 0 and 1.';
 
     public function randomise() {
         $r = $this->getRandomNumber();
@@ -24,15 +24,14 @@ class RandomNumber extends AbstractRandomiser {
         return null;
     }
 
-    public static function getConfigOptionDescription(): string { 
+    public function getConfigOptionDescription(): string { 
         $desc = static::DESC.'<ul>';
         $desc .= '<li><i class="fas fa-envelope-open text-success fs14 mr-1""></i>'.\RCView::tt('random_161').\RCView::tt('colon').' Regular group allocation, random number recorded as randomization number (<code>[rand-number]</code>)</li>';
         $desc .= '<li><i class="fas fa-envelope text-danger fs14 mr-1""></i>'.\RCView::tt('random_162').\RCView::tt('colon').' Random number overwrites uploaded target randomization number value for allocation.</li>';
         return $desc.'</ul>'; 
     }
 
-    protected static function getConfigOptionArray(): array { return array(); }
-    protected static function getConfigOptionMarkupFields($currentSettings=null): string { return ''; }
+    protected function getConfigOptionMarkupFields(): string { return ''; }
     
     protected function updateRandomisationState(array $stratification, int $allocation) { }
 }

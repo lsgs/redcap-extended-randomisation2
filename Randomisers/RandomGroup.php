@@ -42,8 +42,7 @@ class RandomGroup extends AbstractRandomiser {
         return $this->allocateAid($randomAid);
     }
 
-    protected static function getConfigOptionArray(): array { return array(); }
-    protected static function getConfigOptionMarkupFields($currentSettings=null): string { return ''; }
+    protected function getConfigOptionMarkupFields(): string { return ''; }
 
     protected function updateRandomisationState(array $stratification, int $allocation) { }
 }
