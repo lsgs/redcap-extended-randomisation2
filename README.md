@@ -6,7 +6,10 @@ Luke Stevens, Murdoch Children's Research Institute [https://www.mcri.edu.au/](h
 ********************************************************************************
 ## Summary
 
-REDCap external module providing alternative randomization algorithms beyond REDCap's built-in stratified permuted block randomization via the `redcap_randomize_record()` hook.
+REDCap external module building on the "Randomization 2.0" features incorporated from v14.7.0 to provide:
+
+* Alternative randomization algorithms beyond REDCap's built-in stratified permuted block randomization (via the `redcap_randomize_record()` hook)
+* Batch randomization for randomizing multiple records in sequence
 
 Enable randomization for your project and configure extended options on the Randomization Setup page:
 
@@ -19,7 +22,7 @@ Configuration options available using the "Configure" button on the External Mod
 
 * Batch randomization (Development status): select multiple records to randomise sequentially in a batch (e.g. for simulations or cluster randomisation)
 * Specify a seed for random number generation (for reproducibility)
-* *Admin only* Batch randomization (Production status): select multiple records to randomise sequentially in a batch e.g. for cluster randomized trials
+* *Admin must enable* Batch randomization (Production status): select multiple records to randomise sequentially in a batch e.g. for cluster randomized trials
 
 ## Configuration: External Module Settings
 ### Recipient for error alert email (optional)
