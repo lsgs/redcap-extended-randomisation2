@@ -22,9 +22,12 @@ class RandomInteger extends AbstractRandomiser {
     /**
      * __construct
      */
-    public function __construct(int $randomization_id, ExtendedRandomisation2 $module) {
+    public function __construct(int $randomization_id, ExtendedRandomisation2 $module, bool $applyConfig=true) {
         parent::__construct($randomization_id, $module);
+        if ($applyConfig) $this->applyConfig();
+    }
 
+    public function applyConfig(): void {
         if ($this->config_current_randomiser_type=='RandomInteger' && is_array($this->config_current_settings_array) && !empty($this->config_current_settings_array)) {
             $configure = $this->validateConfigSettings($this->config_current_settings_array);
             if ($configure!==true) {

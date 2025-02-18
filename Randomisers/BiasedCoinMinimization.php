@@ -18,44 +18,54 @@ class BiasedCoinMinimization extends AbstractRandomiser {
     public const USE_WITH_OPEN = true;
     public const USE_WITH_CONCEALED = true;
     protected const LABEL = 'Biased coin minimization';
-    protected const DESC = "Dynamic randomization via the biased coin minimization algorithm described in <blockquote>Han, B., Enas, N. H., & McEntegart, D. (2009). Randomization by minimization for unbalanced treatment allocation. <i>Statistics in medicine, 28</i>(27), 3329–3346. https://doi.org/10.1002/sim.3710</blockquote>";
+    protected const DESC = "Dynamic randomization via the biased coin minimization algorithm described in this paper:<blockquote style='border-left:solid 3px #ddd;padding-left:1em;'>Han, B., Enas, N. H., & McEntegart, D. (2009). Randomization by minimization for unbalanced treatment allocation. <i>Statistics in medicine, 28</i>(27), 3329–3346. <a target='_blank' href='https://doi.org/10.1002/sim.3710'>https://doi.org/10.1002/sim.3710</a></blockquote><p>Settings for strata weighting, allocation ratios, and base allocation probability are editable here only while the project is in Development status or no records have yet been randomized.</p>";
     protected const DEFAULT_ASSIGNMENT_PROB = 0.7;
-
-    protected $stratum_weights;
+    protected const DEFAULT_OVERALL_REF = 'OVERALL';
+    public static $ProdEditableSettings = array('logging_field');
+    
+    protected $factor_weights;
     protected $allocation_ratios;
     protected $base_assignment_prob;
     protected $logging_field;
+    protected $logging_steps;
+    protected $use_stored_state = false; // possible future option to allow use of stored state rather than reading state from allocation table
 
     /**
      * __construct
      */
-    public function __construct(int $randomization_id, ExtendedRandomisation2 $module) {
+    public function __construct(int $randomization_id, ExtendedRandomisation2 $module, bool $applyConfig=true) {
         parent::__construct($randomization_id, $module);
 
-        $this->stratum_weights = array();
+        $this->factor_weights = array();
         $this->allocation_ratios = array();
         $this->base_assignment_prob = null;
         $this->logging_field = '';
+        $this->logging_steps = array();
 
-        if ($this->attrs['stratified'] > 0) {
-            if (count($this->attrs['strata'])) $this->stratum_weights = array_fill_keys(array_keys($this->attrs['strata']), null);
-            if ($this->attrs['group_by']=='DAG') $this->stratum_weights['dag'] = null;
-            if (count($this->stratum_weights)===1) $this->stratum_weights[key($this->stratum_weights)] = 1;
+        if ($this->attrs['stratified'] > 0 || $this->attrs['group_by']=='DAG' || $this->attrs['group_by']=='FIELD') {
+            if (count($this->attrs['strata'])) $this->factor_weights = array_fill_keys(array_keys($this->attrs['strata']), null); // includes group by FIELD case
+            if ($this->attrs['group_by']=='DAG') $this->factor_weights['redcap_data_access_group'] = null;
+            if (count($this->factor_weights)===1) $this->factor_weights[key($this->factor_weights)] = 1;
         }
 
         if ($this->isBlinded > 0) {
             $this->allocation_ratios = array(); // groups as well as set in config for blinded allocation
         } else {
-            global $Proj;
             $targetFieldEnum = $this->module->getChoiceLabels($this->attrs['targetField']); 
             $this->allocation_ratios = array_fill_keys(array_keys($targetFieldEnum), null);
         }
 
+        if ($applyConfig) $this->applySavedConfig();
+    }
+
+    public function applySavedConfig(): void {
         if ($this->config_current_randomiser_type=='BiasedCoinMinimization' && is_array($this->config_current_settings_array) && !empty($this->config_current_settings_array)) {
             $configure = $this->validateConfigSettings($this->config_current_settings_array);
             if ($configure!==true) {
                 throw new \Exception("Error in Biased Coin Minimisation config: $configure");
             }
+        } else {
+            throw new \Exception("Error in Biased Coin Minimisation config: no saved settings to apply");
         }
     }
 
@@ -91,12 +101,12 @@ class BiasedCoinMinimization extends AbstractRandomiser {
                     }
                 }
             }
-            else if (starts_with($key, 'stratum_weights')) {
+            else if (starts_with($key, 'factor_weights')) {
                 list($label, $stratumField) = explode('-', $key, 2);
                 
-                if (array_key_exists($stratumField, $this->stratum_weights)) {
+                if (array_key_exists($stratumField, $this->factor_weights)) {
                     if (is_numeric($value) && floatval($value)>0 && floatval($value)<=1) {
-                        $this->stratum_weights[$stratumField] = $settings[$key] = floatval($value);
+                        $this->factor_weights[$stratumField] = $settings[$key] = floatval($value);
                     } else {
                         $errors[] = "Invalid stratum weight for stratum '$stratumField': '$value' (non-zero floating point number less than or equal to 1 expected)";
                     }
@@ -107,7 +117,15 @@ class BiasedCoinMinimization extends AbstractRandomiser {
             else if (starts_with($key, 'allocation_ratios')) {
                 if ($this->isBlinded) {
                     // value should be json object with group/ratio key value pairs [{"group":"A","ratio":1},{"group":"B","ratio":1}]
-                    // TODO - set $this->allocation_ratios
+                    $valueFromJson = json_decode($value);
+                    if (is_array($valueFromJson)) {
+                        foreach ($valueFromJson as $grObj) {
+                            $this->allocation_ratios[$grObj->group] = $grObj->ratio;
+                        }
+                    } else {
+                        $errors[] = "Invalid specification of group allocation ratios";
+                    }
+
                 } else {
                     list($label, $allocGrp) = explode('-', $key, 2);
                     
@@ -128,9 +146,9 @@ class BiasedCoinMinimization extends AbstractRandomiser {
         }
 
         // check all strata fields have a weight and they sum to 1
-        if (count($this->stratum_weights) > 1) {
+        if (count($this->factor_weights) > 1) {
             $wtSum = 0;
-            foreach ($this->stratum_weights as $sKey => $sw) {
+            foreach ($this->factor_weights as $sKey => $sw) {
                 if (is_null($sw)) {
                     $errors[] = "Missing weight for stratum '$sKey'";
                 } else {
@@ -152,7 +170,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
             }
         }
         if ($ratioSum == 0) {
-            $errors[] = "At least one group must have an allocation ratios greater than zero";
+            $errors[] = "At least one group must have a non-zero allocation ratio";
         }
 
         if (!empty($errors)) return implode('; ',$errors);
@@ -162,6 +180,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
     protected function getConfigOptionMarkupFields(): string { 
         global $Proj;
 
+        $editable = $this->isConfigEditable();
         $bp = $this->base_assignment_prob ?? static::DEFAULT_ASSIGNMENT_PROB;
 
         $targetEventForms = $this->module->getFormsForEventId($this->attrs['targetEvent']);
@@ -171,49 +190,61 @@ class BiasedCoinMinimization extends AbstractRandomiser {
                 $lf[$field] = $this->module->formatLabel($fieldAttrs['element_label']);
             }
         }
-        $logField = \RCView::select(array('class'=>'mt-4', 'name'=>'logging_field'), $lf, $this->logging_field ?? '');
+        $logField = \RCView::select(array('class'=>'mt-2', 'name'=>'logging_field'), $lf, $this->logging_field ?? ''); // always editable
 
         if ($this->isBlinded) {
             // blinded allocation, specify groups and ratios in textarea e.g. A, 1 B:1
-            $ratios = 'TODO'; // TODO json_encode($currentSettings['allocation_ratios']);
-            $ratiosInfo = '</p><p>Specify groups and ratios as an array of objects in JSON format, e.g. <code>[{"group":"A","ratio":1},{"group":"B","ratio":1}]</code>. The assigned group value will be recorded in the allocation table but is accessible in this project only be your Administrator. Users will see the target randomizaton number only.';
-            $ratiosInput = "<input type='text' name='allocation_ratios' value='$ratios'></input>";
+            $blindedGroupRatios = array();
+            foreach ($this->allocation_ratios as $group => $ratio) {
+                $gr = new \stdClass();
+                $gr->group = "$group";
+                $gr->ratio = $ratio;
+                $blindedGroupRatios[] = $gr;
+            }
+            $ratiosText = json_encode($blindedGroupRatios);
+            $ratiosInfo = '</p><p>Specify groups and ratios as an array of objects in JSON format, e.g.<br><code>[{"group":"A","ratio":1},{"group":"B","ratio":1}]</code><br>Users will see the target randomizaton number only. The dynamically assigned group value will be recorded in the allocation table but is accessible in this project only by your Administrator.';
+            $ratiosInput = ($editable) ? "<input class='mt-2' type='text' name='allocation_ratios' style='width:300px;' value='$ratiosText'></input>" : "<span class='mr-2 mt-2 text-muted' style='font-family:monospace;'><i class='fas fa-lock mr-1'></i>$ratiosText</span><input type='hidden' name='allocation_ratios' value='$ratiosText'></input>";
+            if (!empty($blindedGroupRatios)) $ratiosInput .= '<pre style="margin-top:5px; width:300px; line-height:12px; font-size:10px;">'.json_encode($blindedGroupRatios, JSON_PRETTY_PRINT).'</pre>';
         } else {
             $targetFieldEnum = $this->module->getChoiceLabels($this->attrs['targetField']);
             $ratioOpts = array(0,1,2,3,4,5,6,7,8,9,10);
             $ratiosInfo = '';
             $ratiosInput = '';
             foreach ($this->allocation_ratios as $group => $ratio) {
-                $groupDesc = "<span class='badge bg-primary'>$group</span>".' '.$this->module->formatLabel($targetFieldEnum[$group]);
-                $groupSel = \RCView::select(array('name'=>"allocation_ratios-$group"), $ratioOpts, $ratio);
+                $groupDesc = "<span class='badge bg-primary mx-1'>$group</span>".$this->module->formatLabel($targetFieldEnum[$group]);
+                $groupSel = ($editable) ? \RCView::select(array('name'=>"allocation_ratios-$group"), $ratioOpts, $ratio) : "<span class='mr-2 text-muted'><i class='fas fa-lock mr-1'></i>$ratio</span><input type='hidden' name='allocation_ratios-$group' value='$ratio'>";
                 $ratiosInput .= "<p class='mt-1'>$groupSel $groupDesc</p>";
             }
         }
 
-        if (count($this->stratum_weights) > 0) {
-            $swHideClass = (count($this->stratum_weights) > 1) ? '' : 'd-none';
-            foreach ($this->stratum_weights as $stratum => $wt) {
-                $stratumDesc = \RCView::span(array('class'=>'badge bg-secondary'), $stratum);
-                if ($stratum=='dag') {
+        $weightsInput = '';
+        if (count($this->factor_weights) > 0) {
+            $swHideClass = (count($this->factor_weights) > 1) ? '' : 'd-none';
+            foreach ($this->factor_weights as $stratum => $wt) {
+                if ($stratum=='redcap_data_access_group') {
+                    $stratumDesc = \RCView::span(array('class'=>'badge bg-secondary mx-1'), 'redcap_data_access_group');
                     $stratumDesc .= \RCView::tt('global_78', false);
                 } else {
+                    $stratumDesc = \RCView::span(array('class'=>'badge bg-secondary mx-1'), $stratum);
                     $stratumDesc .= $this->module->formatLabel($Proj->metadata[$stratum]['element_label']);
                 }
-                $ratiosInput .= "<p class='mt-1'><input name='stratum_weights-$stratum' value='$wt' /> $stratumDesc</p>";
+                $weightVal = ($editable) ? "<input name='factor_weights-$stratum' value='$wt' />" : "<span class='mr-2 text-muted'><i class='fas fa-lock mr-1'></i>$wt</span><input type='hidden' name='factor_weights-$stratum' value='$wt' />";
+                $weightsInput .= "<p class='mt-1'>$weightVal $stratumDesc</p>";
             }
         } else {
             $swHideClass = 'd-none';
-            $weightsInput = '';
         }
+
+        $bpInput = ($editable) ? "<input class='mt-2' name='base_assignment_prob' value='$bp'>" : "<div class='mt-2 text-muted'><i class='fas fa-lock mr-1'></i>$bp</div><input type='hidden' name='base_assignment_prob' value='$bp'>";
 
         $configFields =  '<div class="container-fluid">';
 
         $configFields .= '  <div class="row extrnd-bcm-setting-row">';
         $configFields .= '    <div class="col">';
         $configFields .= '      <p class="font-weight-bold">Group Allocation Ratios</p>';
-        $configFields .= '      <p class="font-weight-normal">Specify the allocation ratio for each group. Ratios should be integer values.'.$ratiosInfo.'</p>';
+        $configFields .= '      <p class="font-weight-normal">Specify the allocation ratio for each group.'.$ratiosInfo.'</p>';
         $configFields .= '    </div>';
-        $configFields .= '    <div class="col">';
+        $configFields .= '    <div class="col pt-4">';
         $configFields .=        $ratiosInput;
         $configFields .= '    </div>';
         $configFields .= '  </div>';
@@ -221,9 +252,9 @@ class BiasedCoinMinimization extends AbstractRandomiser {
         $configFields .= "  <div class='row extrnd-bcm-setting-row $swHideClass'>";
         $configFields .= '    <div class="col">';
         $configFields .= '      <p class="font-weight-bold">Strata Weighting</p>';
-        $configFields .= '      <p class="font-weight-normal">Specify the weighting for each stratification factor. Weights should be floating point values between 0 and 1, and sum to 1.</p>';
+        $configFields .= '      <p class="font-weight-normal">Specify the weighting for each stratification factor. Weights should be floating point values greater than 0, and sum to 1.</p>';
         $configFields .= '    </div>';
-        $configFields .= '    <div class="col">';
+        $configFields .= '    <div class="col pt-4">';
         $configFields .=        $weightsInput;
         $configFields .= '    </div>';
         $configFields .= '  </div>';
@@ -234,8 +265,8 @@ class BiasedCoinMinimization extends AbstractRandomiser {
         $configFields .= '      <p class="font-weight-bold">Base Assignment Probability</p>';
         $configFields .= '      <p class="font-weight-normal">The probability that the preferred allocation group will actually be assigned to the record. Typically around 0.7.</p>';
         $configFields .= '    </div>';
-        $configFields .= '    <div class="col">';
-        $configFields .= '      <input class="mt-4" name="base_assignment_prob" value="'.$bp.'">';
+        $configFields .= '    <div class="col pt-4">';
+        $configFields .=        $bpInput;
         $configFields .= '    </div>';
         $configFields .= '  </div>';
         
@@ -244,7 +275,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
         $configFields .= '      <p class="font-weight-bold">Comprehensive Logging</p>';
         $configFields .= '      <p class="font-weight-normal">Log details of minimisation calculations to this Notes field. (Must be in same event as target field.)</p>';
         $configFields .= '    </div>';
-        $configFields .= '    <div class="col">';
+        $configFields .= '    <div class="col pt-4">';
         $configFields .=        $logField;
         $configFields .= '    </div>';
         $configFields .= '  </div>';
@@ -253,434 +284,462 @@ class BiasedCoinMinimization extends AbstractRandomiser {
         $configFields .= '<style>';
         $configFields .= '  .extrnd-bcm-setting-row { margin: 0.5em 0 0.5em 0; border-top: solid 1px #ddd; }';
         $configFields .= '  select[name^=allocation_ratios] { width: 50px; }';
-        $configFields .= '  input[name^=stratum_weights] { width: 50px; text-align: right; }';
+        $configFields .= '  input[name^=factor_weights] { width: 50px; text-align: right; }';
         $configFields .= '  input[name=base_assignment_prob] { width: 50px; text-align: right; }';
         $configFields .= '</style>';
         return $configFields;
     }
+
+    public function getConfigOptionDescription(): string { 
+        $desc = static::DESC;
+        if ($this->project_status=='0') {
+            $desc .= "<div class=\"yellow\">Ensure that you test your settings thoroughly (e.g. using simulations via the Batch Randomization page) to ensure that you are obtaining appropriate results prior to eploying the minimization algorithm for Production randomization.</div>";
+        }
+        return $desc;; 
+    }
+
+    protected function addLogStep(string $stepMessage): void {
+        $this->logging_steps[] = $stepMessage;
+    }
+
+    protected function saveLoggingToField(): void {
+        $this->module->saveValueToField($this->rid, $this->record, $this->logging_field, implode(PHP_EOL, $this->logging_steps));
+    }
+
+    public function randomise() {
+        $this->addLogStep("Biased Coin Minimization Logging: Record ".$this->record);
+                
+        $stratification = $this->strata_field_values ?? array();
+        if (is_null($this->group_id)) {
+            $dagUniqueName = '';
+        } else {
+            $dagUniqueName = \REDCap::getGroupNames(true, $this->group_id);
+            $stratification['redcap_data_access_group'] = $this->group_id;
+        }
+        
+        if (count($stratification)) $this->addLogStep("Stratification: ".json_encode($stratification).' '.$dagUniqueName);
+
+        // read current counts by factor/level/group
+        $this->initialiseRandomisationState();
+
+        $this->removeZeroRatioGroups();
+
+        // get the group that minimises imbalance
+        $preferred = $this->getPreferredAllocation($stratification);
+
+        // allocate the preferred group with base prob, or switch to another with 1 - base prob
+        $selected = $this->getSelectedAllocation($preferred);
+
+        // log algorithm calculations
+        if (!empty($this->logging_field)) { $this->saveLoggingToField(); }
+        
+        // update next allocation with selected group
+        $tableCol = ($this->isBlinded) ? 'target_field_alt' : 'target_field';
+        \REDCap::updateRandomizationTableEntry($this->project_id, $this->rid, $this->next_aid, $tableCol, $selected, $this->module->getModuleName());
+
+        // save updated counts to module config
+        $this->updateRandomisationState($stratification, $selected);
+
+        return null; // return and allow regular allocation to next aid (which has now had its group updated)
+    }
     
     /**
-     * Check have selections for required fields and allocate at random to
-     * one of the selected options.
-     * @param mixed $params
-     * @return string
+     * readRandomisationState()
+     * Read counts of previous randomisations by factor/level and group.
+     * 
+     * Randomisation state is a multidimensional associative array with keys corresponding to:
+     * 1. Stratification factor (variable name)
+     * 2. Factor level (value)
+     * 3. Allocation group (value)
+     * An integer count of records assigned to the factor/level/group is the ultimate value.
+     * The overall count by group is also included.
+     * 
+     * array(
+     *   "sex" =>
+     *     "1" =>      // Male
+     *       "1" => 6, /// Group 1: n=6
+     *       "2" => 5  /// Group 2: n=5
+     *     "2" => 
+     *       "1" => 8,
+     *       "2" => 7
+     *   "redcap_data_access_group" => 
+     *     "1111" =>   // group_id
+     *       "1" => 3, // group_id 1111: n=3
+     *       "2" => 5  // group_id 1112: n=5
+     *     "1112" => 
+     *       ...
+     *   "OVERALL" =>
+     *     "1" =>
+     *       "1" => 14,
+     *       "2" => 12 
+     * )
      */
-    public function randomise() {
-        return null;
-        throw new \Exception('BiasedCoinMinimization randomization not implemented');
-        /*
-                $this->randomisation_context = $context;
-                $this->logger = $logger;
-                
-                $this->logger->log("***** Biased Coin Minimisation: Record ".$context->getRecord()." *****");
-                
-                $gotRequiredData = $this->checkRequiredFields($params);
-                if ($gotRequiredData !== true) {
-                        $msg = 'Cannot randomise! Missing required data! '. implode(' | ', $gotRequiredData);
-                        $logger->log($msg);
-                        throw new ExtendedRandomisationFailedException($msg);
-                }
-                
-                $stratification = array();
-                foreach ($params as $fname => $attr) {
-                        if ($fname==='redcap_data_access_group' && is_numeric($attr['value'])) {
-                                $stratification[$fname] = \REDCap::getGroupNames(true, $attr['value']);
-                        } else {
-                                $stratification[$fname] = $attr['value'];
-                        }
-                }
-                
-                $this->logger->log("Stratification values are ".$this->keyValuePairsString($stratification));
-                
-                $preferred = $this->getPreferredAllocation($stratification);
+    protected function initialiseRandomisationState(): void {
+        $this->randomisation_state = array();
 
-                $allocation = $this->doAllocation($preferred);
-                
-                $this->updateRandomisationState($stratification, $allocation);
-                $this->logger->log("Update {$this->randomisation_context->getEventId()} {$this->randomisation_context->getRandomisationField()} randomisation state: ".json_encode($this->randomisation_context->getCurrentRandomisationState()));
-                
-                return $allocation;*/
-        }
-        
-/*        protected function getPreferredAllocation($stratification) {
-                
-                /*
-                 * $stratification is an associative array of factor/level pairs
-                 * for the current record.
-                 * array(
-                 *   "redcap_data_access_group" => "dag_1",
-                 *   "sex" => "1" 
-                 * )
-                 * /
-
-                $marginalImbalanceByGroup = array();
-                
-                foreach ($this->config->allocations_ratios as $proposed_group) {
-                        $totalMarginalImbalance = array();
-                        foreach ($stratification as $factor => $thisLevel) {
-                                $weighting = $this->getFactorWeight($factor);
-                                $adjustedCounts = $this->getAdjustedCounts($factor, $thisLevel, $proposed_group->group);
-
-                                $acClone = $adjustedCounts; // clone, not reference
-                                $sumDiffs = 0;
-                                
-                                foreach ($adjustedCounts as $i => $ci) {
-                                        foreach ($acClone as $j => $cj) {
-                                                if ($i<$j) { $sumDiffs += abs($ci-$cj); }
-                                        }
-                                }
-                                
-                                $Nminus1 = count($adjustedCounts)-1;
-                                $sumAdjustedCounts = array_sum($adjustedCounts);
-                                $factorImbalance = $sumDiffs / ( $Nminus1 * $sumAdjustedCounts );
-                                $weightedImbalance = $factorImbalance * $weighting; 
-                                $this->logger->log("-Imbalance score for Factor $factor=$thisLevel (weighting $weighting), Group={$proposed_group->group} = $sumDiffs ⁄ ($Nminus1 x $sumAdjustedCounts) = $factorImbalance, weighted = $factorImbalance x $weighting = $weightedImbalance");
-                                $totalMarginalImbalance[$factor] = $weightedImbalance;
-                        }
-                        $marginalImbalanceByGroup[$proposed_group->group] += array_sum($totalMarginalImbalance);
-                        $this->logger->log("Total marginal imbalance score for Group={$proposed_group->group} = ".implode('+', $totalMarginalImbalance)." = ".$marginalImbalanceByGroup[$proposed_group->group]);
-                }
-                
-                $minimumImbalanceGroups = array_keys($marginalImbalanceByGroup, min($marginalImbalanceByGroup)); // return the group(s) with minimum imbalance
-                $this->logger->log("Group(s) with minimum imbalance is(are): ".implode(' ', $minimumImbalanceGroups));
-                
-                return $this->selectRandomGroupInRatio($minimumImbalanceGroups); // will select 1 of equally preferred groups
-        }
-
-        protected function getAdjustedCounts($factor, $thisLevel, $proposed_group) {
-                
-                $adjustedCounts = array();
-                $logMsg = '';
-                foreach ($this->config->allocations_ratios as $grp) {
-                        $thisAdjust = ($proposed_group==$grp->group) ? 1 : 0;
-                        // adjust counts by assuming allocation to this group and dividing by target allocation ratio
-                        $count = $this->readCurrentAllocationCountsForFactorLevelGroup($factor, $thisLevel, $grp->group);
-                        $adjustedCount = ($count+$thisAdjust)/$grp->ratio;
-                        $adjustedCounts[$grp->group] = $adjustedCount;
-                        $logMsg .= "{$grp->group} current=$count, adjusted=($count+$thisAdjust) ⁄{$grp->ratio}=$adjustedCount; ";
-                }
-                $this->logger->log("-Factor $factor=$thisLevel Group counts: $logMsg");
-                return $adjustedCounts;
-        }
-        
-        protected function getFactorWeight($factor) {
-                foreach ($this->config->factors_weights as $f) {
-                        if ($f->factor_name === $factor) {
-                            return $f->weighting;
-                        }
-                }
-                throw new ExtendedRandomisationFailedException("Could not get weighting for factor ".$f->factor_name);
-        }
-        
-        /**
-         * readCurrentAllocationCountsForFactorLevel($factor, $level)
-         * 
-         * Randomisation state is an array of objects, each object 
-         * corresponding to a stratification factor (e.g. site).
-         * The factor contains an array of objects, one per level (e.g. 
-         * site number), with each level containing an array of objects,
-         * one per allocation group, containing the current number of 
-         * allocations for that factor/level/group.
-         * 
-         * [
-         *   {
-         *     "factor_name": "redcap_data_access_group",
-         *     "levels": [
-         *       {
-         *         "level_value": "dag_1",
-         *         "allocations": [
-         *           {
-         *             "group_value": "1",
-         *             "group_n": 3
-         *           },
-         *           {
-         *             "group_value": "2",
-         *             "group_n": 2
-         *           }
-         *         ]
-         *       },
-         *       {
-         *         "level_value": "dag_2",
-         *         "allocations": [
-         *           {
-         *             "group_value": "1",
-         *             "group_n": 14
-         *           },
-         *           {
-         *             "group_value": "2",
-         *             "group_n": 15
-         *           }
-         *         ]
-         *       }
-         *     ]
-         *   },
-         *   {
-         *     "factor_name": "sex",
-         *     "levels": [
-         *       ...
-         *     ]
-         *   }
-         * ]
-         * 
-         * @param string $factor
-         * @param string $level
-         * return array $countsForFactorLevel e.g. array("1"=>12, "2"=>11)
-         * /
-        protected function readCurrentAllocationCountsForFactorLevel($factor, $level) {
-                $randomisationState = $this->randomisation_context->getCurrentRandomisationState();
-                $countsForFactorLevel = array();
-                $groups = array_keys($this->config->allocations_ratios);
-                $foundFactor = false;
-                
-                foreach ($randomisationState as $stateFactor) {
-                        if ($stateFactor->factor_name === $factor) {
-                                $foundFactor = true;
-                                foreach ($stateFactor->levels as $stateLevel) {
-                                        if ($stateLevel->level_value === $level) {
-                                                foreach ($stateLevel->allocations as $grp) {
-                                                        $countsForFactorLevel[$grp->group_value] = $grp->group_n;
-                                                }
-                                                break;
-                                        }
-                                }
-                                break;
-                        }
-                }
-
-                if (!$foundFactor) {
-                        foreach ($this->config->allocations_ratios as $group) {
-                                $countsForFactorLevel[$group->group] = 0;
-                        }
-                }
-                
-                return $countsForFactorLevel;
-        }
-
-        protected function readCurrentAllocationCountsForFactorLevelGroup($factor, $level, $group) {
-                $randomisationState = $this->randomisation_context->getCurrentRandomisationState();
-                $foundFactor = false;
-                
-                foreach ($randomisationState as $stateFactor) {
-                        if ($stateFactor->factor_name === $factor) {
-                                $foundFactor = true;
-                                foreach ($stateFactor->levels as $stateLevel) {
-                                        if ($stateLevel->level_value === $level) {
-                                                foreach ($stateLevel->allocations as $grp) {
-                                                        if ($grp->group_value == $group) { return $grp->group_n; }
-                                                }
-                                                break;
-                                        }
-                                }
-                                break;
-                        }
-                }
-                return 0;
-        }
-        
-        protected function selectRandomGroupInRatio(array $selectFrom) {
-                $choicesInRatio = array();
-                if (count($selectFrom)===1) { 
-                        $a = $selectFrom[0]; // only one other group!
-                        $choicesInRatio[] = $a;
+        if ($this->use_stored_state) {
+            $storedStateText = $this->module->getRandStateSettings($this->rid);
+            try {
+                if (empty($storedStateText)) {
+                    $storedState = array();    
                 } else {
-                        // when multiple alternatives, select one at random but account for desired allocation ratio
-                        foreach ($this->config->allocations_ratios as $alloc) {
-                                if (in_array($alloc->group, $selectFrom)) {
-                                        $i=0;
-                                        while($i < $alloc->ratio) {
-                                                $choicesInRatio[] = $alloc->group;
-                                                $i++;
-                                        }
-                                }
-                        }
-                        $a = (string)$choicesInRatio[array_rand($choicesInRatio)];
+                    $storedState = json_decode($storedStateText, true);
                 }
-                $this->logger->log("Allocation $a selected from ".implode(',', $choicesInRatio));
-                return $a;
+            } catch (\Throwable $th) {
+                $storedState = array();
+            }
         }
-        
-        protected function doAllocation($preferred) {
-                $groupAllocationProbabilities = array();
-                foreach ($this->config->allocations_ratios as $grp) {
-                        if ($grp->group == $preferred) {
-                                $groupAllocationProbabilities[$grp->group] = $this->getHighProb($grp->group);
-                        } else {
-                                $groupAllocationProbabilities[$grp->group] = $this->getLowProb($grp->group);
-                        }
-                }
-                
-                $logMsg = 'Group allocation probabilities:';
-                foreach ($groupAllocationProbabilities as $g => $p) {
-                        $logMsg .= " $g=$p";
-                }
-                $this->logger->log($logMsg);
-                
-                $randomNumber = $this->getRandomNumber();
-                $cumulativeP = 0;
-                $allocation = '';
-                foreach ($groupAllocationProbabilities as $g => $p) {
-                        $cumulativeP += $p;
-                        if ($cumulativeP > $randomNumber) {
-                                // allocate the current g
-                                $allocation = $g;
-                                break;
-                        }
-                }
-                
-                $this->logger->log("Random number=$randomNumber, group $allocation selected.");
-                return $allocation;
-        }
-        
-        protected function getAllocationWithLowestRatio() {
-                $lowestAlloc = '';
-                $lowestRatio = '';
-                foreach ($this->config->allocations_ratios as $grp) {
-                        if ($lowestRatio==='' || $grp->ratio < $lowestRatio) {
-                                $lowestAlloc = $grp->group;
-                                $lowestRatio = $grp->ratio;
-                        }
-                }
-                return $lowestAlloc;
-        }
-        
-        protected function getGroupRatio($g) {
-                foreach ($this->config->allocations_ratios as $grp) {
-                        if ($grp->group === $g) { return $grp->ratio; }
-                }
-                throw new ExtendedRandomisationFailedException("Could not get ratio for group $g");
-        }
-        
-        protected function sumRatiosExceptGroup($except) {
-                $sum = 0;
-                foreach ($this->config->allocations_ratios as $grp) {
-                        if ($grp->group !== $except) {
-                                $sum += $grp->ratio;
-                        }
-                }
-                return $sum;
-        }
-        
-        protected function getHighProb($grp) {
-                // the allocation with the lowest ratio gets the baseline allocation probability e.g. 70%, other groups will get a higher probablility
-                $lowestRatioGroup = $this->getAllocationWithLowestRatio();
-                $sumRatiosNotLowest = $this->sumRatiosExceptGroup($lowestRatioGroup);
-                $sumRatiosNotPreferred = $this->sumRatiosExceptGroup($grp);
-                
-                return 1 - ($sumRatiosNotPreferred / $sumRatiosNotLowest) * (1 - ($this->config->base_assignment_probability/100));
-        }
-        
-        protected function getLowProb($grp) {
-                // the allocation with the lowest ratio gets the baseline allocation probability e.g. 70%, other groups will get a higher probablility
-                $lowestRatioGroup = $this->getAllocationWithLowestRatio();
-                $sumRatiosNotLowest = $this->sumRatiosExceptGroup($lowestRatioGroup);
-                
-                return ($this->getGroupRatio($grp) / $sumRatiosNotLowest) * (1 - ($this->config->base_assignment_probability/100));
-        }
-        
-        protected function updateRandomisationState($stratification, $allocation) {
-                $currentState = $this->randomisation_context->getCurrentRandomisationState();
-                foreach ($stratification as $thisFactor => $thisLevel) {
-                
-                        foreach ($currentState as $stateFactor) {
-                                if ($stateFactor->factor_name === $thisFactor) {
-                                        $foundFactor = true;
-                                        $foundLevel = false;
-                                        foreach ($stateFactor->levels as $stateLevel) {
-                                                if ($stateLevel->level_value === $thisLevel) {
-                                                        $foundLevel = true;
-                                                        $foundGroup = false;
-                                                        foreach ($stateLevel->allocations as $group) {
-                                                                if ($group->group_value == $allocation) {
-                                                                        $foundGroup = true;
-                                                                        $group->group_n++;
-                                                                }
-                                                        }
-                                                        if (!$foundGroup) {
-                                                                $stateLevel->allocations = $this->getNewStateAllocations($allocation);
-                                                        }
-                                                        break;
-                                                }
-                                        }
-                                        if (!$foundLevel) {
-                                                $stateFactor->levels[] = $this->getNewStateLevel($thisLevel, $allocation);
-                                        }
-                                        break;
-                                }
-                        }
 
-                        if (!$foundFactor) {
-                                $currentState[] = $this->getNewStateFactor($thisFactor, $thisLevel, $allocation);
-                        }
-                }
-                $this->randomisation_context->setCurrentRandomisationState($currentState);
-        }
-        
-        /**
-         * [
-         *   {
-         *     "factor_name": "redcap_data_access_group",
-         *     "levels": [
-         *       {
-         *         "level_value": "dag_1",
-         *         "allocations": [
-         *           {
-         *             "group_value": "1",
-         *             "group_n": 3
-         *           },
-         *           {
-         *             "group_value": "2",
-         *             "group_n": 2
-         *           }
-         *         ]
-         *       },
-         *       {
-         *         "level_value": "dag_2",
-         *         "allocations": [
-         *           {
-         *             "group_value": "1",
-         *             "group_n": 14
-         *           },
-         *           {
-         *             "group_value": "2",
-         *             "group_n": 15
-         *           }
-         *         ]
-         *       }
-         *     ]
-         *   },
-         *   {
-         *     "factor_name": "sex",
-         *     "levels": [
-         *       ...
-         *     ]
-         *   }
-         * ]
-         * /
-        protected function getNewStateAllocations($allocation) {
-                $allocations = array();
-                foreach ($this->config->allocations_ratios as $group) {
-                        $add = ($group->group==$allocation) ? 1 : 0;
-                        $grp = new \stdClass();
-                        $grp->group_value = $group->group;
-                        $grp->group_n = $add;
-                        $allocations[] = $grp;
-                }
-                return $allocations;
-        }
-        
-        protected function getNewStateLevel($level, $allocation) {
-                $l = new \stdClass();
-                $l->level_value = $level;
-                $l->allocations = $this->getNewStateAllocations($allocation);
-                return $l;
-        }
-        
-        protected function getNewStateFactor($factor, $level, $allocation) {
-                $f = new \stdClass();
-                $f->factor_name = $factor;
-                $f->levels = array($this->getNewStateLevel($level, $allocation));
-                return $f;
-        }*/
+        $factors = array_keys($this->factor_weights);
+        $factors[] = static::DEFAULT_OVERALL_REF;
 
-    protected function updateRandomisationState(array $stratification, int $allocation) {  }
+        foreach ($factors as $factor) {
+            $levels = $this->getFactorLevels($factor);
+            foreach ($levels as $level) {
+                foreach (array_keys($this->allocation_ratios) as $group) {
+                    if ($this->use_stored_state) {
+                        $this->randomisation_state[$factor][$level][$group] = 
+                            (isset($storedState[$factor][$level][$group])) 
+                            ? $storedState[$factor][$level][$group]
+                            : 0;
+                    } else {
+                        // read counts of randomisations for current factor/level/group
+                        $this->randomisation_state[$factor][$level][$group] = $this->readAllocationCount("$factor","$level","$group");
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * getFactorLevels
+     * Get an array of choice values for the specified factor field
+     * @param string factor
+     * @return array levels
+     */
+    protected function getFactorLevels($factor): array {
+        if ($factor===static::DEFAULT_OVERALL_REF) {
+            $levels = array('1');
+        } else {
+            $levels = array();
+            foreach($this->attrs['stratFields'] as $sf) {
+                if ($factor==$sf['field_name']) {
+                    $levels = array_keys($sf['levels']);
+                    break;
+                }
+            }
+        }
+        return $levels;
+    }
+
+    /**
+     * readAllocationCount()
+     * Read the allocation table and return the count of records randomised to the specified factor, level, and group.
+     * @param string The stratification field. Optional (to count for group irrespective of stratum); ignored if level not specified.
+     * @param string The level for the stratification field. Optional (to count for group irrespective of stratum).
+     * @param string The allocation group. Optional (to count for stratum irrespective of group).
+     * @return int The number of records randomised for this combination
+     */
+    protected function readAllocationCount(string $factor='', string $level='', string $group=''): int {
+        $count = 0;
+        $params = array($this->rid, $this->project_status);
+        $andWhere = '';
+        $stratColumn = '';
+        if ($factor !== '' && $factor !== static::DEFAULT_OVERALL_REF) {
+            // get allocation table column for this stratification factor
+            if ($factor === 'redcap_data_access_group') {
+                $stratColumn =  'group_id';
+            } else {
+                foreach ($this->attrs['stratFields'] as $stratField) {
+                    if ($stratField['field_name'] === $factor) {
+                        $stratColumn = "source_field".$stratField['source_field'];
+                        break;
+                    }
+                }
+            }
+        }
+
+        if ($stratColumn !== '' && $level !== '') {
+            $andWhere .= " and $stratColumn = ?";
+            $params[] = $level;
+        }
+
+        if ($group !== '') {
+            $groupColumn = ($this->isBlinded) ? 'target_field_alt' : 'target_field';
+            $andWhere .= " and $groupColumn = ?";
+            $params[] = $group;
+        }
+
+        $sql = "select count(*) as n from redcap_randomization_allocation where rid = ? and project_status = ? and is_used_by is not null $andWhere";
+        $result = $this->module->query($sql, $params);
+        while ($row = $result->fetch_assoc()) {
+            $count = $row['n'];
+        }
+
+        return $count;
+    }
+
+    /**
+     * removeZeroRatioGroups()
+     * Does what it says on the tin
+     */
+    protected function removeZeroRatioGroups() {
+        foreach ($this->allocation_ratios as $group => $ratio) {
+            if ($ratio == 0) {
+                $this->addLogStep("-Group $group removed: ratio=0");
+                unset($this->allocation_ratios[$group]);
+            }
+        }
+    }
+
+    /**
+     * getPreferredAllocation() 
+     * Obtain the group that allocating the current record to will result in minimised allocation imbalance.
+     * If more than one group provides equally mimimal imbalance then one is selected at random.
+     * @param array $stratification
+     * @return string $group
+     */
+    protected function getPreferredAllocation(array $stratification): string {
+        /*
+        * $stratification is an associative array of factor/level pairs for the current record.
+        * array(
+        *   "sex" => "1", 
+        *   "redcap_data_access_group" => "1111"
+        * )
+        * or if no stratification
+        * array( 'OVERALL' => '1' )
+        */
+
+        $marginalImbalanceByGroup = array();
+        if (count($this->factor_weights)===0) $stratification = array(static::DEFAULT_OVERALL_REF=>'1');
+            
+        foreach (array_keys($this->allocation_ratios) as $proposed_group) {
+            $totalMarginalImbalance = array();
+            foreach ($stratification as $factor => $thisLevel) {
+                $weighting = (count($this->factor_weights)===0)? 1 : $this->factor_weights[$factor];
+                $adjustedCounts = $this->getAdjustedCounts($factor, $thisLevel, $proposed_group);
+
+                $acClone = $adjustedCounts;
+                $sumDiffs = 0;
+                
+                foreach ($adjustedCounts as $i => $ci) {
+                    foreach ($acClone as $j => $cj) {
+                        if ($i<$j) { $sumDiffs += abs($ci-$cj); }
+                    }
+                }
+                
+                $Nminus1 = count($adjustedCounts)-1;
+                $sumAdjustedCounts = array_sum($adjustedCounts);
+                $factorImbalance = $sumDiffs / ( $Nminus1 * $sumAdjustedCounts );
+                $weightedImbalance = $factorImbalance * $weighting; 
+                $this->addLogStep("-Imbalance score for Factor $factor=$thisLevel (weighting $weighting), Group={$proposed_group} = $sumDiffs ⁄ ($Nminus1 x $sumAdjustedCounts) = $factorImbalance, weighted = $factorImbalance x $weighting = $weightedImbalance");
+                $totalMarginalImbalance[$factor] = $weightedImbalance;
+            }
+            $marginalImbalanceByGroup[$proposed_group] += array_sum($totalMarginalImbalance);
+            $this->addLogStep("Total marginal imbalance score for Group={$proposed_group} = ".implode('+', $totalMarginalImbalance)." = ".$marginalImbalanceByGroup[$proposed_group]);
+        }
+        
+        $minimumImbalanceGroups = array_keys($marginalImbalanceByGroup, min($marginalImbalanceByGroup)); // return the group(s) with minimum imbalance
+        $this->addLogStep("Group(s) with minimum imbalance is(are): ".implode(' ', $minimumImbalanceGroups));
+        
+        return $this->selectRandomGroupInRatio($minimumImbalanceGroups); // will select 1 of equally preferred groups
+    }
+
+    /**
+     * getAdjustedCounts()
+     * Get the adjusted count for the specified group assuming the current record is assigned to this group.
+     * Adjustment is made by dividing by the group's allocation ratio.
+     * @param string $factor
+     * @param string $level
+     * @param string $group
+     * @return array $adjusted_counts
+     */
+    protected function getAdjustedCounts(string $factor, string $level, string $proposed_group): array {
+        $adjustedCounts = array();
+        $logMsg = '';
+        foreach ($this->allocation_ratios as $group => $ratio) {
+            $thisAdjust = ($proposed_group==$group) ? 1 : 0;
+            // adjust counts by assuming allocation to this group and dividing by target allocation ratio
+            $count = $this->readCurrentAllocationCount($factor, $level, $group);
+            $adjustedCount = ($count+$thisAdjust)/$ratio;
+            $adjustedCounts[$group] = $adjustedCount;
+            $logMsg .= "{$group} current=$count, adjusted=($count+$thisAdjust) ⁄ {$ratio} = $adjustedCount; ";
+        }
+        $this->addLogStep("-Factor $factor=$level Group counts: $logMsg");
+        return $adjustedCounts;
+    }
+    
+    /**
+     * readCurrentAllocationCount()
+     * Get the current count of allocations for the specified factor and/or level and/or group.
+     * Factor, level, and group are all optional.
+     * Zero will be returned if an unrecognised factor/level/group specified
+     * @param ?string factor
+     * @param ?string level
+     * @param ?string group
+     * @return int counts
+     */
+    protected function readCurrentAllocationCount(string $factor=null, string $level=null, string $group=null): int {
+        $currentCount = 0;
+        if (is_null($this->randomisation_state)) $this->initialiseRandomisationState();
+        $includeOverall = ($factor==static::DEFAULT_OVERALL_REF || !$this->attrs['isStratified']); // only include the "OVERALL" state element if it is explicitly requested or if it is the only element (because no stratification)
+
+        foreach ($this->randomisation_state as $loopFactor => $loopLevels) {
+            if ($loopFactor==static::DEFAULT_OVERALL_REF && !$includeOverall) continue;
+            if (!is_null($factor) && $factor != $loopFactor) continue;
+
+            foreach ($loopLevels as $loopLevel => $loopGroups) {
+                if (!is_null($level) && $level != $loopLevel) continue;
+
+                foreach ($loopGroups as $loopGroup => $loopGroupCount) {
+                    if (!is_null($group) && $group != $loopGroup) continue;
+                    $currentCount += $loopGroupCount;
+                }
+            }
+        }
+        return $currentCount;
+    }
+    
+    /**
+     * selectRandomGroupInRatio()
+     * Makes an array of specified groups with count of each group corresponding to the group's allocation ratio
+     * e.g. A:B:C ratio 2:1:1 -> AABC
+     * Returns one group selected at random.
+     * @param array groupsToSelectFrom
+     * @return string selectedGroup
+     */
+    protected function selectRandomGroupInRatio(array $selectFrom): string {
+        $choicesInRatio = array();
+        if (count($selectFrom)===1) { 
+            $a = (string)$selectFrom[0]; // only one other group!
+            $choicesInRatio[] = $a;
+            $indexToPick = 0;
+        } else {
+            // when multiple alternatives, select one at random but account for desired allocation ratio
+            foreach ($this->allocation_ratios as $group => $ratio) {
+                if (in_array($group, $selectFrom)) {
+                    $i=0;
+                    while($i < $ratio) {
+                        $choicesInRatio[] = $group;
+                        $i++;
+                    }
+                }
+            }
+            $indexToPick = $this->getRandomNumber(0, count($choicesInRatio), true);
+            $a = (string)$choicesInRatio[$indexToPick];
+        }
+        $this->addLogStep("Allocation $a selected: index $indexToPick from ".implode(',', $choicesInRatio));
+        return $a;
+    }
+    
+    /**
+     * getSelectedAllocation()
+     * Returns the preferred group with the base assignment probability
+     * Returns an alternative allocation group the rest of the time, at random in proportion to those groups' allocation ratios
+     * @param string preferredGroup
+     * @return string selectedGroup
+     */
+    protected function getSelectedAllocation(string $preferred): string {
+        $groupAllocationProbabilities = array();
+        foreach (array_keys($this->allocation_ratios) as $group) {
+            if ($group == $preferred) {
+                $groupAllocationProbabilities[$group] = $this->getHighProb($group);
+            } else {
+                $groupAllocationProbabilities[$group] = $this->getLowProb($group);
+            }
+        }
+        
+        $logMsg = 'Group allocation probabilities:';
+        foreach ($groupAllocationProbabilities as $g => $p) {
+            $logMsg .= " $g=$p";
+        }
+        $this->addLogStep($logMsg);
+        
+        $randomNumber = $this->getRandomNumber(0, 1, false);
+        $cumulativeP = 0;
+        $allocation = '';
+        foreach ($groupAllocationProbabilities as $g => $p) {
+            $cumulativeP += $p;
+            if ($cumulativeP > $randomNumber) {
+                // allocate the current g
+                $allocation = $g;
+                break;
+            }
+        }
+        
+        $this->addLogStep("Random number=$randomNumber, group $allocation selected.");
+        return (string)$allocation;
+    }
+    
+    /**
+     * getGroupWithLowestRatio()
+     * Get the allocation that has the lowest allocation ratio. If multiple groups share this ratio the first is returned.
+     * @return string group
+     */
+    protected function getGroupWithLowestRatio(): string {
+        $lowestRatio = null;
+        $lowestRatioGroup = null;
+        foreach ($this->allocation_ratios as $group => $ratio) {
+            if (is_null($lowestRatio) || $ratio < $lowestRatio) {
+                $lowestRatio = $ratio;
+                $lowestRatioGroup = $group;
+            }
+        }
+        return (string)$lowestRatioGroup;
+    }
+
+    /**
+     * sumRatiosExceptGroup
+     * Get the sum of groups' ratios, (optionally, except one specified)
+     * @param ?string exceptGroup
+     * @return float sum
+     */
+    protected function sumRatiosExceptGroup($except=null) {
+        $sum = 0;
+        foreach ($this->allocation_ratios as $group => $ratio) {
+            if ($group !== $except) {
+                $sum += $ratio;
+            }
+        }
+        return $sum;
+    }
+    
+    protected function getHighProb($grp) {
+        // the allocation with the lowest ratio gets the baseline allocation probability e.g. 70%, other groups will get a higher probablility
+        $lowestRatioGroup = $this->getGroupWithLowestRatio();
+        $sumRatiosNotLowest = $this->sumRatiosExceptGroup($lowestRatioGroup);
+        $sumRatiosNotPreferred = $this->sumRatiosExceptGroup($grp);
+        
+        return 1 - ($sumRatiosNotPreferred / $sumRatiosNotLowest) * (1 - $this->base_assignment_prob);
+    }
+    
+    protected function getLowProb($grp) {
+        // the allocation with the lowest ratio gets the baseline allocation probability e.g. 70%, other groups will get a higher probablility
+        $lowestRatioGroup = $this->getGroupWithLowestRatio();
+        $sumRatiosNotLowest = $this->sumRatiosExceptGroup($lowestRatioGroup);
+        $thisGroupRatio = $this->allocation_ratios[$grp];
+        return ($thisGroupRatio / $sumRatiosNotLowest) * (1 - $this->base_assignment_prob);
+    }
+    
+    /**
+     * updateRandomisationState()
+     * Increment the count for the selected group for the current stratification factors (and overall)
+     * Save to module settings
+     * @param array stratification
+     * @param string selectedAllocationGroup
+     */
+    protected function updateRandomisationState($stratification, $group): void {
+
+        $this->randomisation_state[static::DEFAULT_OVERALL_REF]['1'][$group]++;
+
+        foreach ($stratification as $factor => $level) {
+            $this->randomisation_state[$factor][$level][$group]++;
+        }
+
+        $project_settings = $this->module->getProjectSettings($this->project_id);
+
+        $project_settings['rand-state'][$this->config_current_index] = \json_encode($this->randomisation_state, JSON_FORCE_OBJECT);
+
+        $this->module->setProjectSettings($project_settings, $this->project_id);
+    }
 }

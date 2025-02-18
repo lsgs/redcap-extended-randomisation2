@@ -1,6 +1,6 @@
 {
 	"name": "Extended Randomization",
-	"description": "Alternative randomization algorithms beyond REDCap's built-in stratified permuted block randomization. Enable randomization for your project and configure on the Randomization page.",
+	"description": "Alternative randomization algorithms beyond REDCap's built-in stratified permuted block randomization.<br><br>Enable randomization for your project and configure extended options on the Randomization Setup page:<ul><li>Biased coin minimization with customizable stratum weightings and allocation ratios</li><li>Random integer in specified range</li><li>Random floating point number 0-1</li><li>Random group</li></ul>Configuration options available using the External Module \"Configure\" button include:<ul><li>Specify a seed for random number generation (for reproducibility)</li><li>Batch randomization (Development status): select multiple records to randomise sequentially in a batch (e.g. for simulations)</li><li>Batch randomization (Production status): *Admin only* e.g. for cluster randomized trials",
 	"namespace": "MCRI\\ExtendedRandomisation2",
 	"authors": [
 		{
@@ -10,7 +10,7 @@
 		}
 	],
     "framework-version": 16,
-    "compatibility": { "redcap-version-min": "14.7.0", "php-version-min": "7.4.0" },
+    "compatibility": { "redcap-version-min": "14.7.0", "php-version-min": "8.0.0" },
     "auth-ajax-actions": [ "save-randomiser-config", "randomise-record" ],
     "project-settings": [
         {
@@ -31,24 +31,24 @@
             "type": "descriptive"
         },
         {
-            "name": "Enable batch randomization (Development)<br><span class=\"text-muted\"><ul><li>Adds new tab to Randomization page.</li><li>Requires \"Dashboard\" and \"Randomize\" permissions.</li><li>Administrator may enable batch randomization for Production status.</li></ul>",
+            "name": "<div style=\"display:table-cell; max-width:420px;\">Batch randomization (Development) <span class=\"text-muted\">[Enabled]</span><br><span class=\"text-muted\"><ul><li>Adds new tab to Randomization page.</li><li>Requires \"Dashboard\" and \"Randomize\" permissions.</li><li>Administrator may enable batch randomization for Production status.</li></ul></div><div style=\"display:table-cell; vertical-align:middle; font-size:16px; padding-left:10px;\"><i class=\"fas fa-square-check text-primary\"></i></div>",
             "key": "enable-batch-dev",
-            "type": "checkbox"
+            "type": "descriptive"
         },
         {
-            "name": "Seed for random number generation (integer, optional)<br><span class=\"text-muted\">Set and forget for project: do not edit once randomizations have commenced</span>",
+            "name": "Seed for reproducible random number generation (integer, optional)<br><span class=\"text-muted\">Set and forget for project: do not edit once randomizations have commenced</span>",
             "key": "seed",
             "type": "text",
             "validation": "integer"
         },
         {
-            "name": "Seed sequence (positive integer)<br><em>DO NOT EDIT</em> except to delete value after erasing all project data",
+            "name": "Seed sequence (positive integer)<br><strong><em>*DO NOT EDIT*</em></strong> except to delete value after erasing all project data",
             "key": "seed-sequence",
             "type": "text",
             "validation": "integer"
         },
         {
-            "name": "Delay module execution<br><span class=\"text-muted\">Use this option to have this module executed for each hook as late as possible in the sequence of modules implementing the `randomize_record()` hook.",
+            "name": "Delay module execution<br><span class=\"text-muted\">Use this option to have this module executed for each hook as late as possible in the sequence of modules implementing the <code>redcap_randomize_record()</code> hook.",
             "key": "delay",
             "type": "checkbox"
         },

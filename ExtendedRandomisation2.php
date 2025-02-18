@@ -5,11 +5,14 @@
  */
 namespace MCRI\ExtendedRandomisation2;
 require_once 'Randomisers/AbstractRandomiser.php';
+require_once 'Randomisers/REDCapDefault.php';
 
 use ExternalModules\AbstractExternalModule;
 
 class ExtendedRandomisation2 extends AbstractExternalModule
 {
+    const REDCAP_DEFAULT = 'REDCapDefault';
+    const SHOW_DISABLED_BATCH_TAB = true;
     private $randAttrs;
     
     //region External Module Framework methods
@@ -24,37 +27,18 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             $randomiser = $this->makeRandomiser($randomization_id);
             if ($randomiser instanceof \MCRI\ExtendedRandomisation2\AbstractRandomiser) {
                 $randomiser->initialiseRecordRandomiser($record, $field_values, $group_id);
-                $result = $randomiser->randomise();
+                if ($randomiser->getNextAid()==='0') {
+                    $result = '0'; // return allocation table exhausted
+                } else {
+                    $result = $randomiser->randomise();
+                }
             } else {
                 $result = null;
             }
 
         } catch (\Throwable $th) {
-            $randAttr = \Randomization::getRandomizationAttributes($randomization_id);
             $result = "An error occurred in randomization id $randomization_id ";
-            \REDCap::logEvent($this->getModuleName(), $result.PHP_EOL.'See external module log for more information.', '', $record, $randAttr['targetEvent'], $project_id);
-            $this->log($result.PHP_EOL.$th->getMessage().PHP_EOL.$th->getTraceAsString());
-
-            $failEmails = array_filter($this->getProjectSetting('fail-alert-email'), static function($var){return $var !== null;} );
-            if (sizeof($failEmails)>0) {
-                global $project_contact_email;
-                $subject = "Extended Randomization External Module: Randomization Failed for Record '$record' (pid=$project_id)";
-                $body = [$subject];
-                $body[] = "";
-                $body[] = "Date/time: ".NOW;
-                $body[] = "Project: $project_id";
-                $body[] = "Randomization ID: $randomization_id";
-                $body[] = "Record: $record";
-                $body[] = "";
-                $body[] = "Check the project's External Module Logging page for more information.";
-                
-                $email = new \Message();
-                $email->setFrom($project_contact_email);
-                $email->setTo(implode(',', $failEmails));
-                $email->setSubject($subject);
-                $email->setBody(implode('<br>',$body), true);
-                $email->send();
-            }
+            $this->logError($randomization_id, $result, $record, $th);
         }
         return $result;
     }
@@ -75,11 +59,21 @@ class ExtendedRandomisation2 extends AbstractExternalModule
 
     /**
      * redcap_every_page_before_render()
-     * Catch a randomisation model being deleted and remove any module config for that particular randomisation
+     * - Catch a randomisation model being deleted and remove any module config for that particular randomisation
+     * - Catch an "Erase all data" and clear any module seed sequence value and state storage
      */
     public function redcap_every_page_before_render($project_id) {
-        if (!defined('PAGE') || PAGE!='"Randomization/save_randomization_setup.php"') return;
-        if (!isset($_POST['action']) || $_POST['action']!=='erase') return;
+        if (!defined('PAGE')) return;
+        if (!isset($_POST['action'])) return;
+        if (PAGE=='Randomization/save_randomization_setup.php' && $_POST['action']=='erase') $this->removeRidModuleConfig($project_id);
+        if (PAGE=='ProjectGeneral/erase_project_data.php' && $_POST['action']=='erase_data') $this->resetModuleState($project_id);
+    }
+
+    /**
+     * removeRidModuleConfig()
+     * Catch a randomisation model being deleted and remove any module config for that particular randomisation
+     */
+    protected function removeRidModuleConfig($project_id) {
         if (!isset($_POST['rid'])) return;
         $rid = \Randomization::getRid($_POST['rid'], $project_id);
         if ($rid===false) return;
@@ -111,18 +105,90 @@ class ExtendedRandomisation2 extends AbstractExternalModule
     }
 
     /**
+     * resetModuleState()
+     * Catch an "Erase all data" and clear any module seed sequence value and state storage
+     */
+    protected function resetModuleState($project_id) {
+        $ridStateSettings = $this->getProjectSetting('rand-state');
+        foreach (array_keys($ridStateSettings) as $index) {
+            $ridStateSettings[$index] = '';
+        }
+        $this->setProjectSetting('rand-state', $ridStateSettings);
+        $this->setProjectSetting('seed-sequence', '');
+    }
+
+    /**
      * redcap_every_page_top()
      * - Add tab to Dashboard page for batch randomisation
      * - Add config options to setup page
      */
     public function redcap_every_page_top($project_id) {
         if (!defined('USERID')) return;
-        if (PAGE=='Randomization/index.php' && isset($_GET['rid'])) $this->setupPage($_GET['rid']);
-        if (PAGE=='Randomization/dashboard.php' && isset($_GET['rid'])) $this->dashboardPage($_GET['rid']);
+        if (PAGE=='Randomization/index.php' && !isset($_GET['rid'])) $this->summaryPage();
+        if (PAGE=='Randomization/index.php' && isset($_GET['rid'])) $this->setupPage($this->escape($_GET['rid']));
+        if (PAGE=='Randomization/dashboard.php' && isset($_GET['rid'])) $this->dashboardPage($this->escape($_GET['rid']));
     }
     //endregion
 
     //region Page content
+    /**
+     * summaryPage()
+     * Additional content for Randomisation Setup page
+     * - Indicator icons for Allocation Type
+     */
+    public function summaryPage(): void {
+        $projectRandomisations = \Randomization::getAllRandomizationAttributes();
+        $extrndIcons = array();
+        foreach (array_keys($projectRandomisations) as $index => $rid) {
+            list($thisRidKey, $randomiserType, $thisRandConfigText) = $this->getRandConfigSettings($rid);
+            if (!empty($randomiserType) && $randomiserType != self::REDCAP_DEFAULT) {
+                $thisRandomiser = $this->makeRandomiser($rid, false); // only need the randomiser name - don't apply config as may not be properly set yet
+                $thisRandIconProp = new \stdClass();
+                $thisRandIconProp->rowIndex = $index;
+                $thisRandIconProp->label = $thisRandomiser->getConfigOptionLabel();
+                $extrndIcons[] = $thisRandIconProp;
+            }
+        }
+        if (count($extrndIcons)===0) return;
+
+        $this->initializeJavascriptModuleObject();
+        ?>
+        <style type="text/css">
+            .extrnd-init-hidden { display: none; }
+        </style>
+        <i id="extrnd-icon-template" class="fas fa-cube fs14 ml-2 extrnd-init-hidden" data-bs-toggle="tooltip" aria-label="Extended Randomisation" data-bs-original-title="Extended Randomisation"></i>
+        <script type="text/javascript">
+            let module = <?=$this->getJavascriptModuleObjectName()?>;
+            module.extrndIcons = JSON.parse('<?=\js_escape(\json_encode($extrndIcons))?>');
+            module.iconTemplate = $('#extrnd-icon-template');
+            module.makeIcon = function(rndAttr) {
+                console.log(rndAttr);
+                let label = 'Extended Randomisation: '+rndAttr.label;
+                let thisIcon = $(module.iconTemplate).clone().removeAttr('id');
+                let tblRow = $('#RandSummaryTable').find('tr:nth-of-type('+(1+rndAttr.rowIndex)+')'); // +1 cos row 0 is 1st of type etc
+                let tblCell = $(tblRow).find('td:nth-of-type(3)');
+                $(thisIcon)
+                    .attr('aria-label',label)
+                    .attr('data-bs-original-title',label)
+                    .appendTo(tblCell)
+                    .tooltip()
+                    .removeClass('extrnd-init-hidden');
+            };
+            module.init = function() {
+                module.extrndIcons.forEach((element) => module.makeIcon(element));
+            };
+            $(document).ready(function(){
+                module.init();
+            });
+        </script>   
+        <?php
+    }
+
+    /**
+     * setupPage()
+     * Additional content for Randomisation Setup page
+     * - Step 5: randomiser options
+     */
     public function setupPage($rid): void {
         if ($rid=='new') {
             $opacity = 'opacity: 0.5;';
@@ -131,7 +197,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             $extRndOpts = array(); 
             $extRndOpt = '';
             $extRndOptsConfig = '';
-            $ridConfig = array(); 
+            $ridConfig = array();
         } else {
             $attrs = \Randomization::getRandomizationAttributes($rid);
             $opacity = '';
@@ -144,8 +210,26 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             list($extRndOpts, $extRndOptsConfig) = $this->setupPageContent($rid);
 
             list($thisRidKey, $thisClass, $thisRandConfigText) = $this->getRandConfigSettings($rid);
-            $extRndOpt = (empty($thisClass)) ? 'Default' : $thisClass;
+            $extRndOpt = (empty($thisClass)) ? self::REDCAP_DEFAULT : $thisClass;
             $ridConfig = \json_decode($thisRandConfigText, true) ?? array();
+            $classname = __NAMESPACE__.'\\'.$extRndOpt;
+            $randomiser = new $classname($rid, $this, false);
+            $configEditable = $randomiser->isConfigEditable();
+            $hasEditableSettings = (count($randomiser::$ProdEditableSettings) > 0);
+        }
+
+        $saveButton = \RCView::button(array('id'=>'extrnd-opt-save','class'=>'btn btn-xs btn-defaultrc'), '<i class="fas fa-cog mr-1"></i>'.\RCView::tt('control_center_4878'));
+
+        if ($configEditable) {
+            $selectRandomiser = \RCView::select(array('class'=>'mx-2','style'=>'max-width:400px;', 'id'=>'extrnd-opt', 'name'=>'extrnd-opt', $disabled=>''), $extRndOpts, $extRndOpt);
+        } else {
+            // e.g. in prod - can't change the randomiser once > 0 records randomised!
+            $prodRndOpt = array($extRndOpt => $extRndOpts[$extRndOpt]);
+            $selectRandomiser = \RCView::select(array('class'=>'mx-2','style'=>'max-width:400px;', 'id'=>'extrnd-opt', 'name'=>'extrnd-opt', 'disabled'=>'disabled'), $prodRndOpt, $extRndOpt);
+            
+            if (!$hasEditableSettings) {
+                $saveButton = \RCView::span(array('class'=>'text-muted text-danger'), 'Not editable: records randomized in Production');
+            }
         }
 
         print \RCView::div(array('id'=>'extrnd-step5div','class'=>'round chklist extrnd-init-hidden','style'=>'background-color:#eee;border:1px solid #ccc;padding:5px 15px 15px;'.$opacity),
@@ -153,8 +237,8 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             \RCView::p(array('style'=>''), \RCView::span(array(),'Additional configuration options provided by the <em><i class="fas fa-cube mr-1"></i>Extended Randomization</em> external module.')) .
             \RCView::div(array(),
                 \RCView::span(array('class'=>'font-weight-bold', 'style'=>'display:inline-block;min-width:120px;'), \RCView::span(array(),$envelope."Randomization option")) . 
-                \RCView::select(array('class'=>'mx-2','style'=>'max-width:400px;', 'id'=>'extrnd-opt', 'name'=>'extrnd-opt', $disabled=>''), $extRndOpts, $extRndOpt) .
-                \RCView::button(array('id'=>'extrnd-opt-save','class'=>'btn btn-xs btn-defaultrc'), '<i class="fas fa-cog mr-1"></i>'.\RCView::tt('random_207')) . 
+                $selectRandomiser .
+                $saveButton . 
                 \RCView::span(array('id'=>'extrnd-opt-savedmsg','class'=>'ml-1'), '') .
                 \RCView::input(array('type'=>'hidden','name'=>'extrnd-rid','value'=>$rid))
             ) .
@@ -169,7 +253,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             let module = <?=$this->getJavascriptModuleObjectName()?>;
             module.rid = <?=$rid?>;
             module.randomiser = '<?=$extRndOpt?>';
-            module.randomiserConfig = JSON.parse('<?=\json_encode($ridConfig, JSON_FORCE_OBJECT)?>');
+            module.randomiserConfig = JSON.parse('<?=\js_escape2(\json_encode($ridConfig, JSON_FORCE_OBJECT))?>');
             module.selectRandomiser = function() {
                 module.randomiser = $(this).val();
                 module.readRandomiserSettings();
@@ -251,12 +335,17 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             if (!is_array($currentSettings)) $currentSettings = array();
         }
 
-        $availableOptions = array('Default'=>\RCView::tt('multilang_75',false));
-        $configMarkup = AbstractRandomiser::getDefaultConfigOptionMarkup(); // Default "EM not enabled for this rid" message
+        $availableOptions = array();
+        $configMarkup = '';
         
         foreach(AbstractRandomiser::getRandomiserNames() as $thisRandomiserName) {
             $classname = __NAMESPACE__.'\\'.$thisRandomiserName;
-            $randomiser = new $classname($rid, $this);
+            $randomiser = new $classname($rid, $this, false);
+            try {
+                $randomiser->applySavedConfig();
+            } catch (\Throwable $th) {
+                $configErrorMessage = $th->getMessage();
+            }
             if ( ( $attrs['isBlinded'] && $classname::USE_WITH_CONCEALED) ||
                  (!$attrs['isBlinded'] && $classname::USE_WITH_OPEN) )  {
                 $availableOptions[$randomiser->getConfigOptionName()] = $randomiser->getConfigOptionLabel();
@@ -274,24 +363,42 @@ class ExtendedRandomisation2 extends AbstractExternalModule
         global $user_rights,$status;
         if (!($user_rights['random_dashboard']=='1' && $user_rights['random_perform']=='1')) return;
         switch ($status) {
-            case '0': $batchEnabled = $this->getProjectSetting('enable-batch-dev'); break;
+            case '0': $batchEnabled = true; // $this->getProjectSetting('enable-batch-dev'); break;
             case '1': $batchEnabled = $this->getProjectSetting('enable-batch-prod'); break;
             default: $batchEnabled = false; break;
         }
-        if (!$batchEnabled) return;
+        if (!$batchEnabled && !static::SHOW_DISABLED_BATCH_TAB) return;
 
         $url = $this->getUrl('batch.php',false,false).'&rid='.intval($rid);
         ?>
+        <style type="text/css">
+            .extrnd-tab-diabled { opacity: 50%; }
+        </style>
         <script type="text/javascript">
-            $(document).ready(function(){
+            $(document).ready(function() {
+                const message = 'Administrator must enable for Production status <br>in the \"Extended Randomization\" external module settings.';
+                const enabled = <?=($batchEnabled)?'true':'false';?>;
                 let tab = $('#sub-nav li:last').clone();
-                $(tab).find('a:first').attr('href', '<?=$url?>').find('span:first').html('Batch Randomisation');
-                $(tab).removeClass('active').appendTo('#sub-nav ul');
+                $(tab).removeClass('active').find('span:first').html('Batch Randomisation');
+                if (enabled) {
+                    $(tab).find('a:first').attr('href', '<?=$url?>');
+                } else {
+                    let a = $(tab).find('a:first');
+                    $(a).attr('href','javascript:;').on('click', function(){
+                        simpleDialog(message, 'Batch Randomisation');
+                    });
+                    $(tab).addClass('extrnd-tab-diabled').attr('title', message.replace(/<[^>]*>/g, ''));
+                }
+                $(tab).appendTo('#sub-nav ul');
             });
         </script>   
         <?php
     }
 
+    /**
+     * batchRandomisationPage()
+     * Module page for performing multiple sequential randomisations 
+     */
     public function batchRandomisationPage($rid): void {
         global $Proj,$longitudinal,$status,$user_rights,$lang;
 
@@ -647,6 +754,8 @@ class ExtendedRandomisation2 extends AbstractExternalModule
         $tbl .= '</tr></thead><tbody>';
 
         foreach ($recordsToRandomise as $rec => $sortVal) {
+            $rec = $this->escape($rec);
+            $sortVal = $this->escape($sortVal);
             $tbl .= "<tr><td>$rec ";
             if ($crlByArm[$rec]!=='') $tbl .= \RCView::span(array('class'=>'crl'), $crlByArm[$rec]);
             if ($sortVal!=='') $tbl .= \RCView::span(array('class'=>'text-muted'), " ($sortVal)");
@@ -801,7 +910,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
      * getRandAttrs($rid)
      * Enhanced version of \Randomization::getRandomizationAttributes($rid) also capturing allocation groups and unique strata combinations
      */
-    protected function getRandAttrs($rid) {
+    public function getRandAttrs($rid) {
         if (!isset($this->randAttrs)) {
             global $Proj;
             $this->randAttrs = \Randomization::getRandomizationAttributes($rid);
@@ -840,7 +949,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
      * getStratumIndex()
      * Get the stratum index for the provided set of stratfication values
      */
-    protected function getStratumIndex($rid, array $fields, ?int $group_id) : ?int {
+    public function getStratumIndex($rid, array $fields, ?int $group_id) : ?int {
         $ra = $this->getRandAttrs($rid);
         if (empty($fields) && empty($group_id)) return null;
         $parts = array();
@@ -891,12 +1000,12 @@ class ExtendedRandomisation2 extends AbstractExternalModule
 
     /**
      * makeRandomiser()
-     * Obtain a configured instance of the appropriate randomiser class for this randomisation
+     * Obtain an instance of the appropriate randomiser class for this randomisation
      */
-    protected function makeRandomiser($randomization_id): ?AbstractRandomiser {
+    protected function makeRandomiser($randomization_id, bool $applyConfig=true): ?AbstractRandomiser {
         list($thisRidKey, $randomiserType, $thisRandConfigText) = $this->getRandConfigSettings($randomization_id);
 
-        if (is_null($thisRidKey) || $randomiserType==='Default') return null; // no EM config this rand
+        if (is_null($thisRidKey) || $randomiserType===self::REDCAP_DEFAULT) return null; // no EM config this rand
         
         if (file_exists(dirname(__FILE__)."/Randomisers/$randomiserType.php")) {
             require_once "Randomisers/$randomiserType.php";
@@ -905,7 +1014,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             throw new \Exception("Could not read module config for randomization id $randomization_id");
         }
 
-        $randomiser = new $classname($randomization_id, $this);
+        $randomiser = new $classname($randomization_id, $this, $applyConfig);
 
         return $randomiser;
     }
@@ -913,7 +1022,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
     /**
      * getRandConfigSettings
      * Read the module config settings for the specified randomisation
-     * @param $rid The unique randomisation id top read the module settings for
+     * @param $rid The unique randomisation id to read the module settings for
      * @return array (int key in config array or false if not yet present; string randomiser class name; string config text or empty)
      */
     public function getRandConfigSettings($rid) : array {
@@ -931,6 +1040,26 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             }
         }
         return array($rtnKey,$rtnClass,$rtnText);
+    }
+
+    /**
+     * getRandStateSettings
+     * Read the module config settings for the specified randomisation's stored state
+     * @param $rid The unique randomisation id to read the module settings for
+     * @return string the stored state as text
+     */
+    public function getRandStateSettings($rid) : string {
+        $randStateConfig = $this->getSubSettings('project-rand-config');
+        $rtnStateText = '';
+        foreach($randStateConfig as $key => $randSettings) {
+            $thisRid = $randSettings['rand-id'];
+            if ($rid==$thisRid) {
+                if ($key!=$this->config_current_index) throw new \Exception("Unexpected index for randomisaation state"); // paranoid double check
+                $rtnStateText = $randSettings['rand-state'] ?? '';
+                break;
+            }
+        }
+        return $rtnStateText;
     }
 
     /**
@@ -978,21 +1107,19 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             $randomiserName = $payload['randomiser_class'];
             unset($payload['randomiser_class']);
 
-            if ($randomiserName!='Default') {
-                if (file_exists(dirname(__FILE__)."/Randomisers/$randomiserName.php")) {
-                    require_once "Randomisers/$randomiserName.php";
-                    $classname = __NAMESPACE__.'\\'.$randomiserName;
-                } else {
-                    throw new \Exception("Unknown randomization class");
-                }
-        
-                $randomiser = new $classname($rid, $this);
-                $validate = $randomiser->validateConfigSettings($payload);
-                if ($validate!==true) {
-                    throw new \Exception($validate);
-                }
+            if (file_exists(dirname(__FILE__)."/Randomisers/$randomiserName.php")) {
+                require_once "Randomisers/$randomiserName.php";
+                $classname = __NAMESPACE__.'\\'.$randomiserName;
+            } else {
+                throw new \Exception("Unknown randomization class");
             }
-
+    
+            $randomiser = new $classname($rid, $this, false);
+            $validate = $randomiser->validateConfigSettings($payload);
+            if ($validate!==true) {
+                throw new \Exception($validate);
+            }
+            
             $project_settings = $this->getProjectSettings($project_id);
 
             list($thisRidKey, $thisClass, $thisRandConfigText) = $this->getRandConfigSettings($rid);
@@ -1005,10 +1132,23 @@ class ExtendedRandomisation2 extends AbstractExternalModule
                     $settingIndex = count($project_settings['rand-id']);
                 }
             }
-            $project_settings['project-rand-config'][$settingIndex] = 'true';
-            $project_settings['rand-id'][$settingIndex] = "$rid";
-            $project_settings['rand-class'][$settingIndex] = $randomiserName;
-            $project_settings['rand-config'][$settingIndex] = (empty($payload)) ? '' : \json_encode($payload, JSON_FORCE_OBJECT);
+
+            if ($randomiser->isConfigEditable()) {
+                $project_settings['project-rand-config'][$settingIndex] = 'true';
+                $project_settings['rand-id'][$settingIndex] = "$rid";
+                $project_settings['rand-class'][$settingIndex] = $randomiserName;
+                $project_settings['rand-config'][$settingIndex] = (empty($payload)) ? '' : \json_encode($payload, JSON_FORCE_OBJECT);
+            } else if (!empty($payload) && count($randomiser::$ProdEditableSettings) > 0) {
+                // allow changes to only these properties
+                $settings = $project_settings['rand-config'][$settingIndex];
+                foreach ($randomiser::$ProdEditableSettings as $editableSetting) {
+                    $settings[$editableSetting] = $payload[$editableSetting];
+                }
+                $project_settings['rand-config'][$settingIndex] = $settings;
+            } else {
+                // no edits allowed (and save should not be possible, so something amiss)
+                throw new \Exception('Config changes not permitted');
+            }
 
             $this->setProjectSettings($project_settings, $project_id);
             $result = true;
@@ -1166,6 +1306,73 @@ class ExtendedRandomisation2 extends AbstractExternalModule
 
     public function formatLabel($label, $maxLen=50) {
         return truncateTextMiddle(strip_tags(\REDCap::filterHtml($label)), $maxLen);
+    }
+
+    /**
+     * saveValueToField()
+     * Save a single value to a single event/field for a record
+     */
+    public function saveValueToField($randomization_id, $record, $field, $value) {
+        $randAttr = $this->getRandAttrs($randomization_id);
+        $saveArray = array($this->makeSaveArrayElement($record, $randAttr['targetEvent'], $field, $value));
+        $saveResult = \REDCap::saveData('json-array', $saveArray, 'overwrite'); // json_encode() not required for 'json-array' format
+        if (isset($saveResult['errors']) && !empty($saveResult['errors']) ) {
+            $this->logError($randomization_id, "Results save failed \n".print_r($saveResult, true)."\nData:\n".print_r($saveArray, true), $record, $randAttr['targetEvent']);
+        }
+    }
+
+    /**
+     * makeSaveArrayElement()
+     */
+    protected function makeSaveArrayElement($record, $event_id, $field, $value, $instance=null) {
+        global $Proj;
+        $elem = array();
+        $elem[$Proj->table_pk] = $record;
+        if (\REDCap::isLongitudinal()) {
+            $elem['redcap_event_name'] = \REDCap::getEventNames(true, false, $event_id);
+        }
+        if ($Proj->isRepeatingEvent($event_id)) {
+            $elem['redcap_repeat_instrument'] = '';
+            $elem['redcap_repeat_instance'] = $instance;
+
+        } else if ($Proj->isRepeatingForm($event_id, $Proj->metadata[$field]['form_name'])) {
+            $elem['redcap_repeat_instrument'] = $Proj->metadata[$field]['form_name'];
+            $elem['redcap_repeat_instance'] = $instance;
+        }
+        $elem[$field] = $value;
+        return $elem;
+    }
+
+    /**
+     * logError()
+     * Record details of error in module logging and notify project users specified in module settings
+     */
+    protected function logError(int $randomization_id, string $message, string $record=null, \Throwable $th=null): void {
+        global $project_id;
+        $randAttr = $this->getRandAttrs($randomization_id);
+        \REDCap::logEvent($this->getModuleName(), $message.PHP_EOL.'See external module log for more information.', '', $record, $randAttr['targetEvent'], $project_id);
+        $this->log($message. (is_null($th) ? '' : PHP_EOL.$th->getMessage().PHP_EOL.$th->getTraceAsString()));
+
+        $failEmails = array_filter($this->getProjectSetting('fail-alert-email'), static function($var){return $var !== null;} );
+        if (sizeof($failEmails)>0) {
+            global $project_contact_email;
+            $subject = "Extended Randomization External Module Error (pid=$project_id)";
+            $body = [$subject];
+            $body[] = "";
+            $body[] = "Date/time: ".NOW;
+            $body[] = "Project: $project_id";
+            $body[] = "Randomization ID: $randomization_id";
+            if (!is_null($record)) $body[] = "Record: $record";
+            $body[] = "";
+            $body[] = "Check the project's External Module Logging page for more details.";
+            
+            $email = new \Message();
+            $email->setFrom($project_contact_email);
+            $email->setTo(implode(',', $failEmails));
+            $email->setSubject($subject);
+            $email->setBody(implode('<br>',$body), true);
+            $email->send();
+        }
     }
     //endregion
 }

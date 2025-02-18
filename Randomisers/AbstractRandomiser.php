@@ -11,17 +11,21 @@ namespace MCRI\ExtendedRandomisation2;
  * @author luke.stevens
  */
 abstract class AbstractRandomiser {
+    public const REDCAP_DEFAULT = 'REDCapDefault';
     public const USE_WITH_OPEN = true;
     public const USE_WITH_CONCEALED = true;
-    protected const LABEL = 'Default';
-    protected const DESC = 'The <em>Extended Randomization</em> external module will not be active for this randomization. Randomization will be performed using REDCap\'s standard randomization mechanism.';
+    protected const LABEL = '-';
+    protected const DESC = '-';
     protected ExtendedRandomisation2 $module;
     protected $project_id;
+    protected $project_status;
     protected $rid;
     protected array $attrs;
     protected $isBlinded;
+    protected $config_current_index;
     protected $config_current_randomiser_type;
     protected $config_current_settings_array;
+    protected $randomisation_state = null;
     protected $record;
     protected $strata_field_values;
     protected $group_id;
@@ -29,11 +33,13 @@ abstract class AbstractRandomiser {
     protected $seed = null;
     protected $seedSequence = null;
     protected $ridTotal = 0;
+    public static $ProdEditableSettings = array(); // any settings that are editable in prod
 
     public static function getClassNameWithoutNamespace() { return str_replace(__NAMESPACE__ . '\\', '', get_called_class()); }
     public function getConfigOptionName(): string { return static::getClassNameWithoutNamespace(); }
     public function getConfigOptionLabel(): string { return static::LABEL; }
     public function getConfigOptionDescription(): string { return static::DESC; }
+    public function getNextAid() { return $this->next_aid; }
     abstract protected function getConfigOptionMarkupFields(): string;
 
     /**
@@ -53,12 +59,12 @@ abstract class AbstractRandomiser {
     abstract protected function updateRandomisationState(array $stratification, int $allocation);
     
     public static function getRandomiserNames() {
-        $names = array();
+        $names = array(self::REDCAP_DEFAULT);
         $dir = dirname(__FILE__);
         foreach (glob("$dir/*.php") as $path) {
             $filename = array_pop(explode('/',$path));
             $classname = str_replace('.php','',$filename);
-            if ($classname!='AbstractRandomiser' && $classname!='RandomiserConfig') {
+            if ($classname!='AbstractRandomiser' && $classname!=self::REDCAP_DEFAULT) {
                 require_once $path;
                 //if (is_subclass_of($classname, self::getClassNameWithoutNamespace())) {
                 $names[] = $classname;
@@ -71,19 +77,31 @@ abstract class AbstractRandomiser {
      * __construct
      * Create a new randomiser intitialised with project/randomisation/config information (but not record context)
      */
-    public function __construct(int $randomization_id, ExtendedRandomisation2 $module) {
+    public function __construct(int $randomization_id, ExtendedRandomisation2 $module, bool $applyConfig=true) {
+        global $Proj;
         $this->project_id = PROJECT_ID;
+        $this->project_status = $Proj->project['status'];
         $this->module = $module;
         $this->rid = $randomization_id;
-        $this->attrs = \Randomization::getRandomizationAttributes($this->rid);
+        $this->attrs = $this->module->getRandAttrs($this->rid);
         $this->isBlinded = $this->attrs['isBlinded'];
         $this->seed = intval($module->getProjectSetting('seed'));
         $this->seedSequence = intval($module->getProjectSetting('seed-sequence'));
 
         list($thisRidKey, $randomiserType, $randConfigText) = $module->getRandConfigSettings($randomization_id);
+        $this->config_current_index = $thisRidKey;
         $this->config_current_randomiser_type = $randomiserType;
         $this->config_current_settings_array = \json_decode($randConfigText, true) ?? array();
-        if (!is_array($this->config_current_settings_array)) throw new \Exception("Could not read module config for randomization id $randomization_id, '$randomiserType'");
+        if ($applyConfig && !is_array($this->config_current_settings_array)) throw new \Exception("Could not read module config for randomization id $randomization_id, '$randomiserType'");
+    }
+
+    public function applySavedConfig(): void {
+        if (is_array($this->config_current_settings_array) && !empty($this->config_current_settings_array)) {
+            $configure = $this->validateConfigSettings($this->config_current_settings_array);
+            if ($configure!==true) {
+                throw new \Exception("Error in randomiser config: $configure");
+            }
+        }
     }
 
     /**
@@ -103,8 +121,8 @@ abstract class AbstractRandomiser {
 
     protected function readNextAllocationId() {
         if (!isset($this->record)) throw new \Exception("An error occurred in reading the randomization allocation table: no record specified.");
-
-        $nextAllocId = \REDCap::getNextRandomizationAllocation($this->project_id, $this->rid, $this->strata_field_values, $this->group_id);
+        $groupName = \REDCap::getGroupNames(true, $this->group_id);
+        $nextAllocId = \REDCap::getNextRandomizationAllocation($this->project_id, $this->rid, $this->strata_field_values, $groupName);
         if ($nextAllocId===false) {
             throw new \Exception("An error occurred in reading the randomization allocation table: rid=$this->rid; record=$this->record; group_id=$this->group_id; fields=".implode(';',array_keys($this->strata_field_values))."; values=".implode(';',array_values($this->strata_field_values)));
         } else if ($nextAllocId==='0') {
@@ -172,10 +190,6 @@ abstract class AbstractRandomiser {
         return $html;
     }
 
-    public static function getDefaultConfigOptionMarkup(): string {
-        return static::makeConfigOptionMarkup('Default', AbstractRandomiser::DESC, '');
-    }
-    
     protected static function makeConfigOptionMarkup($randomiserName, $description, $settingsForm): string {
         return \RCView::div(array('id'=>'extrnd-opt-config-'.$randomiserName, 'class'=>'extrnd-opt-config extrnd-init-hidden'),
             \RCView::p(array(), $description).
@@ -185,5 +199,19 @@ abstract class AbstractRandomiser {
 
     public function validateConfigSettings(array &$settings) {
         return true;
+    }
+
+    /**
+     * isConfigEditable
+     * Configuration will not be editable once a record is randomised in Production
+     * - static::$ProdEditableSettings is array of settings that are allowed to be edited in prod, but this method will still return false
+     * @return bool
+     */
+    public function isConfigEditable() : bool {
+        $sql = "select count(*) as n_prod_rand from redcap_randomization_allocation where rid = ? and is_used_by is not null and project_status = 1 group by rid";
+        $result = $this->module->query($sql, [$this->rid]);
+        if ($result->num_rows === 0) return true;
+        $n_prod_rand = $result->fetch_assoc()['n_prod_rand'];
+        return $n_prod_rand === 0; // editable when 0 prod rand
     }
 }
