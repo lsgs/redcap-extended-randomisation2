@@ -65,11 +65,17 @@ Dynamic randomization via the biased coin minimization algorithm with customizab
 * **Base assignment probability**: the probability (0-1) that the group calculated to minimize the allocation imbalance will actually be assigned to the randomized record. Typically around 0.7. (0 would mean the preferred group would *never* be assigned; 1 would mean the preferred group would *always* be assigned.)
 * **Logging field**: select a notes-type field from the target event into which full logging of the minimization and assignment calculations will be recorded.
 
-**Note**: Settings for strata weightings, allocation ratios, and base allocation probability are editable in Production status only when no records have yet been randomized using the randomization model.
+*Production Status Configuration Changes:*
+
+Settings for strata weightings, allocation ratios, and base allocation probability are editable in Production status only when no records have yet been randomized using the randomization model. The logging field may be changed.
 
 *Allocation Behaviour:*
 * **Open group allocation**: The next available allocation table entry will have its target field (group) updated with the result of the minimization algorithm.
 * **Concealed allocation**: The result of the minimization algorithm will be recorded to the alternate target column in the allocation table.
+
+*Allocation Table Generation - Dummy Default Group:*
+
+The randomization group for the allocated schedule entry is updated with each result produced by the algorithm. When using an open group allocation, REDCap requires that the uploaded allocation schedule include a value for the group associated with each entry, a value that will then be updated upon each successful randomization. The clarity of the Randomization Dashboard page can be improved by specifying a dummy, placeholder group (e.g. as `0, Placeholder | 1, Intervention | 2, Control`) as the default allocation group in the generated and uploaded randomization schedule, then configuring the dummy, placeholder group to have an allocation ratio of `0`. The Dashboard page will then show unallocated entries all in the "Placeholder" group, and only allocated records in the real allocation categories, as they are assigned.
 
 ### Random Integer in Specified Range
 Generates a random integer between the specified minimum and maximum values (inclusive).
@@ -95,3 +101,27 @@ Rather than selecting the next available entry from the allocation table in sequ
 *Allocation Behaviour:*
 * **Open group allocation**: Record assigned to random allocation table entry for stratum
 * **Concealed allocation**: *Not available*
+
+## Screenshots
+
+### Randomization Setup: Additional Step 5
+
+Configure extended options for your randomization models via an additional step (5) on the Randomization Setup page: 
+
+> [Randomization Setup: Additional Step 5](https://redcap.mcri.edu.au/surveys/index.php?pid=14961&__passthru=DataEntry%2Fimage_view.php&doc_id_hash=ca08ca65a2b626c45f3095c1c161c8961122fafa&id=2078022&s=wAPCzBwv8sJKMRvb&page=file_page&record=6&event_id=47634&field_name=thefile&instance=1)
+
+### Randomization Models Summary Page
+
+Randomization models configured to use one of the additional allocation options get an indicator icon on the Randomization Summary page:
+
+> [Randomization Summary Indicator Icons](https://redcap.mcri.edu.au/surveys/index.php?pid=14961&__passthru=DataEntry%2Fimage_view.php&doc_id_hash=972c822243ad5ae3a1c96419ef710bf97f140654&id=2078023&s=CTgjBX5Evtdrkbof&page=file_page&record=7&event_id=47634&field_name=thefile&instance=1)
+
+### Batch Randomization
+
+An additional page is available via Randomization Dashboards that enables batches of records to be randomized in sequence. The record list shows all records in the project that are ready to randomize (i.e. have any necessary stratification saved, and are not yet randomized).
+
+Select the records to randomize and they will be randomized in sequence, with the allocation result and charts updated as the allocations occur.
+
+The Batch Randomization page is available automatically when the module is enabled and the project is in Development status, but must be enabled for Production use in the project by your administrator.
+
+> [Batch Randomization](https://redcap.mcri.edu.au/surveys/index.php?pid=14961&__passthru=DataEntry%2Fimage_view.php&doc_id_hash=ed580a8200cab56d0ce70bbab13ac956d992aa0f&id=2078025&s=JWn4GmNJGjcZY4x6&page=file_page&record=8&event_id=47634&field_name=thefile&instance=1)

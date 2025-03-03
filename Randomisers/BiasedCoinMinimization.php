@@ -18,7 +18,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
     public const USE_WITH_OPEN = true;
     public const USE_WITH_CONCEALED = true;
     protected const LABEL = 'Biased coin minimization';
-    protected const DESC = "Dynamic randomization via the biased coin minimization algorithm described in this paper:<blockquote style='border-left:solid 3px #ddd;padding-left:1em;'>Han, B., Enas, N. H., & McEntegart, D. (2009). Randomization by minimization for unbalanced treatment allocation. <i>Statistics in medicine, 28</i>(27), 3329–3346. <a target='_blank' href='https://doi.org/10.1002/sim.3710'>https://doi.org/10.1002/sim.3710</a></blockquote><p>Settings for strata weighting, allocation ratios, and base allocation probability are editable here only while the project is in Development status or no records have yet been randomized.</p>";
+    protected const DESC = "Dynamic randomization via the biased coin minimization algorithm described in this paper:<blockquote style='border-left:solid 3px #ddd;padding-left:1em;'>Han, B., Enas, N. H., & McEntegart, D. (2009). Randomization by minimization for unbalanced treatment allocation. <i>Statistics in medicine, 28</i>(27), 3329–3346. <a target='_blank' href='https://doi.org/10.1002/sim.3710'>https://doi.org/10.1002/sim.3710</a></blockquote><p>This biased coin minimization algorithm is suitable for use with either equal or unequal group allocation ratios.</p><p><strong>Allocation mechanism:</strong> The minimization algorithm calculates the group to assign dynamically, then updates the value on the allocation table entry being allocated to the record. Allocation tables may be generated with valid value as the group: whatever the table contains will be overwritten by the selected group upon allocation.<p><strong>Allocation tables/Dashboard view:</strong> For an improved Dashboard view, consider generating your allocation table with a dummy, placeholder value for the allocation group. Include this dummy group in your allocation field and specify an allocation ratio of <code>0</code>. Allocation table entries will be switched from the placeholder value to their real allocation group as they are allocated.</p></p><p><strong>Production status:</strong> Settings for strata weighting, allocation ratios, and base allocation probability are editable here only while the project is in Development status or no records have yet been randomized. The logging field setting may be altered as needed.</p>";
     protected const DEFAULT_ASSIGNMENT_PROB = 0.7;
     protected const DEFAULT_OVERALL_REF = 'OVERALL';
     public static $ProdEditableSettings = array('logging_field');
@@ -263,7 +263,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
         $configFields .= '  <div class="row extrnd-bcm-setting-row">';
         $configFields .= '    <div class="col">';
         $configFields .= '      <p class="font-weight-bold">Base Assignment Probability</p>';
-        $configFields .= '      <p class="font-weight-normal">The probability that the preferred allocation group will actually be assigned to the record. Typically around 0.7.</p>';
+        $configFields .= '      <p class="font-weight-normal">Base probability that the record will actually be assigned to the preferred allocation group. Applies for the group(s) with lowest allocation ratio(s) and adjusted up for groups with higher allocation ratios. Typically around 0.7.</p>';
         $configFields .= '    </div>';
         $configFields .= '    <div class="col pt-4">';
         $configFields .=        $bpInput;
@@ -293,7 +293,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
     public function getConfigOptionDescription(): string { 
         $desc = static::DESC;
         if ($this->project_status=='0') {
-            $desc .= "<div class=\"yellow\">Ensure that you test your settings thoroughly (e.g. using simulations via the Batch Randomization page) to ensure that you are obtaining appropriate results prior to eploying the minimization algorithm for Production randomization.</div>";
+            $desc .= "<div class=\"yellow\">Ensure that you test your settings thoroughly (e.g. using simulations via the Batch Randomization page) to ensure that you are obtaining appropriate results prior to employing the minimization algorithm for Production randomization.</div>";
         }
         return $desc;; 
     }
@@ -486,7 +486,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
     protected function removeZeroRatioGroups() {
         foreach ($this->allocation_ratios as $group => $ratio) {
             if ($ratio == 0) {
-                $this->addLogStep("-Group $group removed: ratio=0");
+                $this->addLogStep("-Group $group removed: allocation ratio=0");
                 unset($this->allocation_ratios[$group]);
             }
         }
@@ -532,7 +532,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
                 $sumAdjustedCounts = array_sum($adjustedCounts);
                 $factorImbalance = $sumDiffs / ( $Nminus1 * $sumAdjustedCounts );
                 $weightedImbalance = $factorImbalance * $weighting; 
-                $this->addLogStep("-Imbalance score for Factor $factor=$thisLevel (weighting $weighting), Group={$proposed_group} = $sumDiffs ⁄ ($Nminus1 x $sumAdjustedCounts) = $factorImbalance, weighted = $factorImbalance x $weighting = $weightedImbalance");
+                $this->addLogStep("-Imbalance score for Factor $factor=$thisLevel (weighting $weighting), Group={$proposed_group} = $sumDiffs / ($Nminus1 x $sumAdjustedCounts) = $factorImbalance, weighted = $factorImbalance x $weighting = $weightedImbalance");
                 $totalMarginalImbalance[$factor] = $weightedImbalance;
             }
             $marginalImbalanceByGroup[$proposed_group] += array_sum($totalMarginalImbalance);
@@ -563,7 +563,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
             $count = $this->readCurrentAllocationCount($factor, $level, $group);
             $adjustedCount = ($count+$thisAdjust)/$ratio;
             $adjustedCounts[$group] = $adjustedCount;
-            $logMsg .= "{$group} current=$count, adjusted=($count+$thisAdjust) ⁄ {$ratio} = $adjustedCount; ";
+            $logMsg .= "{$group} current=$count, adjusted=($count+$thisAdjust) / {$ratio} = $adjustedCount; ";
         }
         $this->addLogStep("-Factor $factor=$level Group counts: $logMsg");
         return $adjustedCounts;
@@ -625,10 +625,10 @@ class BiasedCoinMinimization extends AbstractRandomiser {
                     }
                 }
             }
-            $indexToPick = $this->getRandomNumber(0, count($choicesInRatio), true);
+            $indexToPick = $this->getRandomNumber(0, count($choicesInRatio)-1, true);
             $a = (string)$choicesInRatio[$indexToPick];
         }
-        $this->addLogStep("Allocation $a selected: index $indexToPick from ".implode(',', $choicesInRatio));
+        $this->addLogStep("Allocation $a selected: index $indexToPick from [".implode(',', $choicesInRatio))."]";
         return $a;
     }
     
@@ -667,7 +667,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
             }
         }
         
-        $this->addLogStep("Random number=$randomNumber, group $allocation selected.");
+        $this->addLogStep("Random number=$randomNumber => group $allocation selected.");
         return (string)$allocation;
     }
     
@@ -689,7 +689,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
     }
 
     /**
-     * sumRatiosExceptGroup
+     * sumRatiosExceptGroup()
      * Get the sum of groups' ratios, (optionally, except one specified)
      * @param ?string exceptGroup
      * @return float sum
@@ -704,21 +704,33 @@ class BiasedCoinMinimization extends AbstractRandomiser {
         return $sum;
     }
     
-    protected function getHighProb($grp) {
-        // the allocation with the lowest ratio gets the baseline allocation probability e.g. 70%, other groups will get a higher probablility
+    /**
+     * getHighProb()
+     * Calculate the probability of assignment for the specified group (which will be the preferred allocation).
+     * Group with the lowest allocation ratio gets the baseline allocation probability (e.g. 70%) but this is adjusted up for higher probablility groups.
+     * @param string group
+     * @return float probability
+     */
+    protected function getHighProb($grp): float {
         $lowestRatioGroup = $this->getGroupWithLowestRatio();
         $sumRatiosNotLowest = $this->sumRatiosExceptGroup($lowestRatioGroup);
         $sumRatiosNotPreferred = $this->sumRatiosExceptGroup($grp);
         
-        return 1 - ($sumRatiosNotPreferred / $sumRatiosNotLowest) * (1 - $this->base_assignment_prob);
+        return (float)(1 - ($sumRatiosNotPreferred / $sumRatiosNotLowest) * (1 - $this->base_assignment_prob));
     }
     
-    protected function getLowProb($grp) {
-        // the allocation with the lowest ratio gets the baseline allocation probability e.g. 70%, other groups will get a higher probablility
+    /**
+     * getLowProb()
+     * Calculate the probability of assignment for the specified group (which will one of the non-preferred allocations).
+     * Will be some part of 1-0.7=0.3 when preferred group is that with the lowest allocation ratio, adjusted according to the allocation ratio of the specified group in relation to the other groups' ratios.
+     * @param string group
+     * @return float probability
+     */
+    protected function getLowProb($grp): float {
         $lowestRatioGroup = $this->getGroupWithLowestRatio();
         $sumRatiosNotLowest = $this->sumRatiosExceptGroup($lowestRatioGroup);
         $thisGroupRatio = $this->allocation_ratios[$grp];
-        return ($thisGroupRatio / $sumRatiosNotLowest) * (1 - $this->base_assignment_prob);
+        return (float)(($thisGroupRatio / $sumRatiosNotLowest) * (1 - $this->base_assignment_prob));
     }
     
     /**
