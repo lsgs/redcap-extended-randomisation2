@@ -322,12 +322,17 @@ class BiasedCoinMinimization extends AbstractRandomiser {
         // read current counts by factor/level/group
         $this->initialiseRandomisationState();
 
+        // remove any groups with allocation ratio=0 from consideration
         $this->removeZeroRatioGroups();
 
         // get the group that minimises imbalance
+        $this->addLogStep("");
+        $this->addLogStep("Calculate preferred allocation group - group with minimal marginal imbalance");
         $preferred = $this->getPreferredAllocation($stratification);
 
-        // allocate the preferred group with base prob, or switch to another with 1 - base prob
+        // allocate the preferred group with ratio-adjusted "high" prob, or switch to another with ratio-adjusted remaining "low" probability
+        $this->addLogStep("");
+        $this->addLogStep("Select group for final allocation: allocate the preferred group with ratio-adjusted \"high\" prob, or other group with ratio-adjusted remaining \"low\" probability");
         $selected = $this->getSelectedAllocation($preferred);
 
         // log algorithm calculations
@@ -514,6 +519,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
         if (count($this->factor_weights)===0) $stratification = array(static::DEFAULT_OVERALL_REF=>'1');
             
         foreach (array_keys($this->allocation_ratios) as $proposed_group) {
+            $this->addLogStep("-Calculate marginal imbalance score if allocate to Group={$proposed_group}");
             $totalMarginalImbalance = array();
             foreach ($stratification as $factor => $thisLevel) {
                 $weighting = (count($this->factor_weights)===0)? 1 : $this->factor_weights[$factor];
@@ -536,13 +542,14 @@ class BiasedCoinMinimization extends AbstractRandomiser {
                 $totalMarginalImbalance[$factor] = $weightedImbalance;
             }
             $marginalImbalanceByGroup[$proposed_group] += array_sum($totalMarginalImbalance);
-            $this->addLogStep("Total marginal imbalance score for Group={$proposed_group} = ".implode('+', $totalMarginalImbalance)." = ".$marginalImbalanceByGroup[$proposed_group]);
+            $this->addLogStep("-Total marginal imbalance score for Group={$proposed_group} = ".implode('+', $totalMarginalImbalance)." = ".$marginalImbalanceByGroup[$proposed_group]);
+            $this->addLogStep("");
         }
         
         $minimumImbalanceGroups = array_keys($marginalImbalanceByGroup, min($marginalImbalanceByGroup)); // return the group(s) with minimum imbalance
-        $this->addLogStep("Group(s) with minimum imbalance is(are): ".implode(' ', $minimumImbalanceGroups));
+        $this->addLogStep("-Group(s) with minimum imbalance is(are): ".implode(' ', $minimumImbalanceGroups));
         
-        return $this->selectRandomGroupInRatio($minimumImbalanceGroups); // will select 1 of equally preferred groups
+        return $this->selectRandomGroupInRatio($minimumImbalanceGroups); // will select 1 of equally preferred groups (at random in accordance with allocation ratio)
     }
 
     /**
@@ -556,16 +563,15 @@ class BiasedCoinMinimization extends AbstractRandomiser {
      */
     protected function getAdjustedCounts(string $factor, string $level, string $proposed_group): array {
         $adjustedCounts = array();
-        $logMsg = '';
+        $this->addLogStep("--Factor $factor=$level group counts: current and adjusted for proposed allocation and allocation ratio:");
         foreach ($this->allocation_ratios as $group => $ratio) {
             $thisAdjust = ($proposed_group==$group) ? 1 : 0;
             // adjust counts by assuming allocation to this group and dividing by target allocation ratio
             $count = $this->readCurrentAllocationCount($factor, $level, $group);
             $adjustedCount = ($count+$thisAdjust)/$ratio;
             $adjustedCounts[$group] = $adjustedCount;
-            $logMsg .= "{$group} current=$count, adjusted=($count+$thisAdjust) / {$ratio} = $adjustedCount; ";
+            $this->addLogStep("---Group=$group: current=$count, adjusted=($count+$thisAdjust) / {$ratio} = $adjustedCount; ");
         }
-        $this->addLogStep("-Factor $factor=$level Group counts: $logMsg");
         return $adjustedCounts;
     }
     
@@ -627,8 +633,8 @@ class BiasedCoinMinimization extends AbstractRandomiser {
             }
             $indexToPick = $this->getRandomNumber(0, count($choicesInRatio)-1, true);
             $a = (string)$choicesInRatio[$indexToPick];
+            $this->addLogStep("--Random selection: index $indexToPick from [".implode(',', $choicesInRatio)."] = group $a ");
         }
-        $this->addLogStep("Allocation $a selected: index $indexToPick from [".implode(',', $choicesInRatio))."]";
         return $a;
     }
     
@@ -649,7 +655,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
             }
         }
         
-        $logMsg = 'Group allocation probabilities:';
+        $logMsg = '-Group allocation probabilities:';
         foreach ($groupAllocationProbabilities as $g => $p) {
             $logMsg .= " $g=$p";
         }
@@ -667,7 +673,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
             }
         }
         
-        $this->addLogStep("Random number=$randomNumber => group $allocation selected.");
+        $this->addLogStep("-Random number=$randomNumber => group $allocation selected.");
         return (string)$allocation;
     }
     

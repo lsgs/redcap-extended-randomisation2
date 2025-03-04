@@ -20,7 +20,7 @@
         },
         {
             "key": "fail-alert-email",
-            "name": "Recipient for error alert email",
+            "name": "Recipient for error notification email messages",
             "required": false,
             "type": "email",
             "repeatable": true
