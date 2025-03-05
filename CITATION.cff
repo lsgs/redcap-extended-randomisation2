@@ -1,0 +1,40 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: 'REDCap External Module: Extended Randomization'
+message: >-
+  If you wish to cite your usage of this module, please do
+  so using these metadata.
+type: software
+authors:
+  - given-names: Luke
+    family-names: Stevens
+    email: luke.stevens@mcri.edu.au
+    affiliation: Murdoch Children's Resewrch Institute
+    orcid: 'https://orcid.org/0000-0001-8878-3326'
+repository-code: 'https://github.com/lsgs/redcap-extended-randomisation2/'
+abstract: >-
+  REDCap external module providing a framework for
+  alternative randomization algorithms that extend beyond
+  REDCap's built-in capabilities for stratified permuted
+  block randomization. 
+
+
+  The module contains some simple random number generation
+  algorithms, plus an implementation of a dynamic biased
+  coin minimization algorithm with facility for customizable
+  stratum weightings and allocation ratios. The algorithm is
+  based on the model described in the following article:
+
+
+  Han, B., Enas, N. H., & McEntegart, D. (2009).
+  Randomization by minimization for unbalanced treatment
+  allocation. Statistics in medicine, 28(27), 3329–3346.
+  https://doi.org/10.1002/sim.3710
+keywords:
+  - REDCap
+  - randomization
+  - minimization
+  - trial
+license: GPL-3.0

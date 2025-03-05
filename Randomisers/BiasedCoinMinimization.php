@@ -585,7 +585,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
      * @param ?string group
      * @return int counts
      */
-    protected function readCurrentAllocationCount(string $factor=null, string $level=null, string $group=null): int {
+    protected function readCurrentAllocationCount(?string $factor=null, ?string $level=null, ?string $group=null): int {
         $currentCount = 0;
         if (is_null($this->randomisation_state)) $this->initialiseRandomisationState();
         $includeOverall = ($factor==static::DEFAULT_OVERALL_REF || !$this->attrs['isStratified']); // only include the "OVERALL" state element if it is explicitly requested or if it is the only element (because no stratification)
