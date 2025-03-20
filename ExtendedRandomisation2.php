@@ -363,7 +363,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
         global $user_rights,$status;
         if (!($user_rights['random_dashboard']=='1' && $user_rights['random_perform']=='1')) return;
         switch ($status) {
-            case '0': $batchEnabled = true; // $this->getProjectSetting('enable-batch-dev'); break;
+            case '0': $batchEnabled = true; break; // $this->getProjectSetting('enable-batch-dev'); break;
             case '1': $batchEnabled = $this->getProjectSetting('enable-batch-prod'); break;
             default: $batchEnabled = false; break;
         }
@@ -494,7 +494,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
 
         // if not enabled in prod then show message rather than table of records
         switch ($status) {
-            case '0': $batchEnabled = true; // always enabled // $this->getProjectSetting('enable-batch-dev'); break;
+            case '0': $batchEnabled = true; break; // always enabled // $this->getProjectSetting('enable-batch-dev'); break;
             case '1': $batchEnabled = $this->getProjectSetting('enable-batch-prod'); break;
             default: $batchEnabled = false; break;
         }

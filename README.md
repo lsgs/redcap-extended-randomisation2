@@ -11,7 +11,7 @@ REDCap external module building on the "Randomization 2.0" features incorporated
 * Alternative randomization algorithms beyond REDCap's built-in stratified permuted block randomization (via the `redcap_randomize_record()` hook)
 * Batch randomization for randomizing multiple records in sequence
 
-Enable randomization for your project and configure extended options on the Randomization Setup page:
+Enable randomization for your project and configure extended options via an additional step ("**STEP 5**") on the Randomization Setup page:
 
 * Biased coin minimization with customizable stratum weightings and allocation ratios
 * Random integer in specified range
@@ -106,7 +106,7 @@ Rather than selecting the next available entry from the allocation table in sequ
 
 ### Randomization Setup: Additional Step 5
 
-Configure extended options for your randomization models via an additional step (5) on the Randomization Setup page: 
+Configure extended options for your randomization models via an additional step ("**STEP 5**") on the Randomization Setup page: 
 
 > [Randomization Setup: Additional Step 5](https://redcap.mcri.edu.au/surveys/index.php?pid=14961&__passthru=DataEntry%2Fimage_view.php&doc_id_hash=ca08ca65a2b626c45f3095c1c161c8961122fafa&id=2078022&s=wAPCzBwv8sJKMRvb&page=file_page&record=6&event_id=47634&field_name=thefile&instance=1)
 

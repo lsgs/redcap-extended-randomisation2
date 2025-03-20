@@ -307,7 +307,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
     }
 
     public function randomise() {
-        $this->addLogStep("Biased Coin Minimization Logging: Record ".$this->record);
+        $this->addLogStep("Biased Coin Minimization Logging (".$this->module->PREFIX."_".$this->module->VERSION."): Record ".$this->record);
                 
         $stratification = $this->strata_field_values ?? array();
         if (is_null($this->group_id)) {
@@ -703,7 +703,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
     protected function sumRatiosExceptGroup($except=null) {
         $sum = 0;
         foreach ($this->allocation_ratios as $group => $ratio) {
-            if ($group !== $except) {
+            if ("$group" !== "$except") {
                 $sum += $ratio;
             }
         }

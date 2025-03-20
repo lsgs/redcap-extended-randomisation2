@@ -20,14 +20,14 @@
         },
         {
             "key": "fail-alert-email",
-            "name": "Recipient for error notification email messages",
+            "name": "Recipient(s) for error notification email messages",
             "required": false,
             "type": "email",
             "repeatable": true
         },
         {
             "key": "section-c",
-            "name": "<div class=\"header\" style=\"position:relative;left:-8px;width:733px\">Module Configuration Options</div>",
+            "name": "<div class=\"header\" style=\"position:relative;left:-8px;width:733px\">Module Configuration Options <br><span class=\"text-muted font-weight-normal\">Set configuration for specific randomizations via additional \"STEP 5\" on Randomization Setup page.</span></div>",
             "type": "descriptive"
         },
         {
