@@ -424,6 +424,11 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             return;
         }
 
+        if (empty($randAttr)) {
+            print  "<div class='red'><img src='" . APP_PATH_IMAGES . "exclamation.png'> <b>{$lang['random_155']}</b></div>";
+            return;
+        }
+
         if ($longitudinal) {
             $targetDiv = \RCView::div(array('class'=>'my-1'), 
                 \RCView::tt('random_170').\RCView::tt('colon'). ' '.
