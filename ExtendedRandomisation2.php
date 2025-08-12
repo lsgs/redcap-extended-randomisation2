@@ -1322,7 +1322,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
         $saveArray = array($this->makeSaveArrayElement($record, $randAttr['targetEvent'], $field, $value));
         $saveResult = \REDCap::saveData('json-array', $saveArray, 'overwrite'); // json_encode() not required for 'json-array' format
         if (isset($saveResult['errors']) && !empty($saveResult['errors']) ) {
-            $this->logError($randomization_id, "Results save failed \n".print_r($saveResult, true)."\nData:\n".print_r($saveArray, true), $record, $randAttr['targetEvent']);
+            $this->logError($randomization_id, "Results save failed \n".print_r($saveResult, true)."\nData:\n".print_r($saveArray, true), $record);
         }
     }
 
@@ -1352,7 +1352,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
      * logError()
      * Record details of error in module logging and notify project users specified in module settings
      */
-    protected function logError(int $randomization_id, string $message, string $record=null, \Throwable $th=null): void {
+    protected function logError(int $randomization_id, string $message, ?string $record=null, ?\Throwable $th=null): void {
         global $project_id;
         $randAttr = $this->getRandAttrs($randomization_id);
         \REDCap::logEvent($this->getModuleName(), $message.PHP_EOL.'See external module log for more information.', '', $record, $randAttr['targetEvent'], $project_id);
