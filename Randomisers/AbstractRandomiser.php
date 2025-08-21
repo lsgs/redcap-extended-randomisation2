@@ -121,7 +121,7 @@ abstract class AbstractRandomiser {
 
     protected function readNextAllocationId() {
         if (!isset($this->record)) throw new \Exception("An error occurred in reading the randomization allocation table: no record specified.");
-        $groupName = \REDCap::getGroupNames(true, $this->group_id);
+        $groupName = (is_null($this->group_id)) ? null : \REDCap::getGroupNames(true, $this->group_id);
         $nextAllocId = \REDCap::getNextRandomizationAllocation($this->project_id, $this->rid, $this->strata_field_values, $groupName);
         if ($nextAllocId===false) {
             throw new \Exception("An error occurred in reading the randomization allocation table: rid=$this->rid; record=$this->record; group_id=$this->group_id; fields=".implode(';',array_keys($this->strata_field_values))."; values=".implode(';',array_values($this->strata_field_values)));
