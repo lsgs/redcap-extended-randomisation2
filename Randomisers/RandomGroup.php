@@ -13,6 +13,8 @@ namespace MCRI\ExtendedRandomisation2;
 class RandomGroup extends AbstractRandomiser {
     public const USE_WITH_OPEN = true;
     public const USE_WITH_CONCEALED = false;
+    public const EXTEND_ALLOC_TABLE_ENTRY_OPEN = false;
+    public const EXTEND_ALLOC_TABLE_ENTRY_CONCEALED = false;
     protected const LABEL = 'Random Group';
     protected const DESC = 'Allocates an available schedule entry from the appropriate stratum at random rather than sequentially.';
     

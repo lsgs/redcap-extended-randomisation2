@@ -14,6 +14,9 @@ abstract class AbstractRandomiser {
     public const REDCAP_DEFAULT = 'REDCapDefault';
     public const USE_WITH_OPEN = true;
     public const USE_WITH_CONCEALED = true;
+    public const EXTEND_ALLOC_TABLE_ENTRY_OPEN = false;
+    public const EXTEND_ALLOC_TABLE_ENTRY_CONCEALED = false;
+    public const EXTEND_CB_CHECKED = 1, EXTEND_CB_UNCHECKED = 0, EXTEND_CB_DISABLED = -1;
     protected const LABEL = '-';
     protected const DESC = '-';
     protected ExtendedRandomisation2 $module;
@@ -33,6 +36,7 @@ abstract class AbstractRandomiser {
     protected $seed = null;
     protected $seedSequence = null;
     protected $ridTotal = 0;
+    protected $extend_allocation_table = false;
     public static $ProdEditableSettings = array(); // any settings that are editable in prod
 
     public static function getClassNameWithoutNamespace() { return str_replace(__NAMESPACE__ . '\\', '', get_called_class()); }
@@ -40,6 +44,16 @@ abstract class AbstractRandomiser {
     public function getConfigOptionLabel(): string { return static::LABEL; }
     public function getConfigOptionDescription(): string { return static::DESC; }
     public function getNextAid() { return $this->next_aid; }
+    public function canExtendTable() { return ($this->isBlinded) ? static::EXTEND_ALLOC_TABLE_ENTRY_CONCEALED : static::EXTEND_ALLOC_TABLE_ENTRY_OPEN; }
+    public function getExtendAllocationTableOption() { 
+        if ($this->canExtendTable() && $this->extend_allocation_table) {
+            return static::EXTEND_CB_CHECKED;
+        } else if ($this->canExtendTable() && !$this->extend_allocation_table) {
+            return static::EXTEND_CB_UNCHECKED;
+        } else {
+            return static::EXTEND_CB_DISABLED;
+        }
+    }
     abstract protected function getConfigOptionMarkupFields(): string;
 
     /**
@@ -88,10 +102,13 @@ abstract class AbstractRandomiser {
         $this->seed = intval($module->getProjectSetting('seed'));
         $this->seedSequence = intval($module->getProjectSetting('seed-sequence'));
 
-        list($thisRidKey, $randomiserType, $randConfigText) = $module->getRandConfigSettings($randomization_id);
+        list($thisRidKey, $randomiserType, $randConfigText, $randExtend) = $module->getRandConfigSettings($randomization_id);
         $this->config_current_index = $thisRidKey;
         $this->config_current_randomiser_type = $randomiserType;
         $this->config_current_settings_array = \json_decode($randConfigText, true) ?? array();
+
+        $this->extend_allocation_table = $this->canExtendTable() && $randExtend;
+
         if ($applyConfig && !is_array($this->config_current_settings_array)) throw new \Exception("Could not read module config for randomization id $randomization_id, '$randomiserType'");
     }
 
@@ -117,6 +134,10 @@ abstract class AbstractRandomiser {
         $this->strata_field_values = $strata_field_values;
         $this->group_id = $group_id;
         $this->next_aid = $this->readNextAllocationId();
+
+        if ($this->next_aid==='0' && $this->extend_allocation_table) {
+            $this->next_aid = $this->insertAllocationId($strata_field_values, $group_id);
+        }
     }
 
     protected function readNextAllocationId() {
@@ -141,6 +162,92 @@ abstract class AbstractRandomiser {
             $message = $th->getMessage();
         }
         return ($result) ? $aid : $message;
+    }
+
+    protected function insertAllocationId(array $strata_field_values, ?int $group_id): int {
+        if (!$this->extend_allocation_table) throw new \Exception('Extending allocation table not permitted');
+
+		// Validate fields
+		$criteriaFields = \Randomization::getRandomizationFields($this->rid, false, true, false, $this->project_id); // events=false; criteriafields=true; targetfield=false
+		if (count($strata_field_values) != count($criteriaFields)) throw new \Exception('Could not extend allocation table: incomplete stratification');
+		foreach (array_keys($strata_field_values) as $field) {
+			if (!in_array($field, $criteriaFields)) throw new \Exception("Could not extend allocation table: incomplete stratification ($field missing)");
+		}
+		// Validate group_id
+        if ($this->attrs['group_id'] == 'DAG') {
+		    $group_id = intval($group_id ?? 0);
+            if ($group_id < 1) throw new \Exception("Could not extend allocation table: incomplete stratification (group_id missing)");
+        } else {
+            $group_id = null;
+        }
+
+        // Create sqls for max randno and insert
+		$sqlwhere = "WHERE `rid`=? AND `project_status`=? AND `group_id`" . ($group_id > 0 ? "=$group_id" : " IS NULL");
+        $selectvalues = array($this->rid, $this->project_status);
+		$sqlinsert = " INSERT INTO redcap_randomization_allocation (rid, project_status, group_id ";
+		$sqlvalues = " VALUES ( ?, ?, ?";
+        $insertvalues = array($this->rid, $this->project_status, $group_id);
+        $logdisplay = "rid = {$this->rid} \n project_status = {$this->project_status} \n group_id = {$group_id}";
+
+        foreach ($criteriaFields as $col => $field) {
+            $val = $this->module->escape($strata_field_values[$field]);
+			$sqlwhere .= " AND `$col`= ?";
+    		$sqlvalues .= ", ?";
+            $selectvalues[] = $val;
+            $sqlinsert .= ", $col";
+            $insertvalues[] = $val;
+            $logdisplay .= " \n $col = $val";
+		}
+
+        $sqlselect = "SELECT `aid`,`target_field`,`target_field_alt` FROM redcap_randomization_allocation $sqlwhere ORDER BY `aid` DESC LIMIT 1";
+		$q = $this->module->query($sqlselect, $selectvalues);
+		if (db_num_rows($q) > 0) {
+            $lastStratumRandnoCol = ($this->isBlinded) ? 'target_field' : 'target_field_alt';
+			$lastStratumRandno = $q->fetch_assoc()[$lastStratumRandnoCol];
+            $randno = $this->incrementRandnoValue($lastStratumRandno);
+            $sqlinsert .= ", $lastStratumRandnoCol";
+    		$sqlvalues .= ", ?";
+            $insertvalues[] = $randno;
+            $logdisplay .= " \n $lastStratumRandnoCol = $randno";
+		}
+
+        $q = $this->module->query("$sqlinsert ) $sqlvalues )", $insertvalues); 
+        if($error = db_error()){
+            throw new \Exception('Could not extend allocation table: INSERT failed with error "'.$error.'"');
+        }
+        $new_aid = db_insert_id();
+        
+        \Logging::logEvent(
+            "$sqlinsert ) $sqlvalues ) [".implode(',',$insertvalues).']', // sql_log
+            'redcap_randomization_allocation', // table / object_type
+            'MANAGE', // event
+            $new_aid, // pk
+            $logdisplay, // display / data_values
+            $this->module->getModuleName().': extend allocation table' // descrip
+        ); 
+
+        return $new_aid;
+    }
+
+    /**
+     * incrementRandnoValue()
+     * Increment trailing digits on a string: "R1-1 -> R1-2"
+     * If param is empty or has no trailing digits then return empty string.
+     * @param string $value
+     * @return string $value_with_increment
+     */
+    protected function incrementRandnoValue(string $value): string {
+        if (empty($value)) return '';
+        // increment trailing digits
+        $matches = array();
+        if (preg_match('/(.*)(\d+)$/', $value, $matches)) {
+            $stem = $matches[1];
+            $intpart = $matches[2];
+            $randno = $stem.(1+intval($intpart));
+        } else {
+            $randno = '';
+        }
+        return $randno;
     }
 
     /**
@@ -177,7 +284,7 @@ abstract class AbstractRandomiser {
         \REDCap::logEvent($this->module->getModuleName(), $description, '', $this->record, $this->attrs['targetEvent']);
     }
 
-    public function getConfigOptionMarkup(): string {
+    public function getConfigOptionMarkup(int $extendOption): string {
         $randomiserName = $this->getConfigOptionName();
         $form = '';
         try {
@@ -186,15 +293,43 @@ abstract class AbstractRandomiser {
         } catch (\Throwable $th) {
             $description = '';
         }
-        $html = static::makeConfigOptionMarkup($randomiserName, $description, $form);
+        $html = static::makeConfigOptionMarkup($randomiserName, $description, $form, $extendOption);
         return $html;
     }
 
-    protected static function makeConfigOptionMarkup($randomiserName, $description, $settingsForm): string {
-        return \RCView::div(array('id'=>'extrnd-opt-config-'.$randomiserName, 'class'=>'extrnd-opt-config extrnd-init-hidden'),
+    protected static function makeConfigOptionMarkup($randomiserName, $description, $settingsForm, $extendOption): string {
+        
+            $cbExtendProps = array('type'=>'checkbox','name'=>'extrnd-extend-table','value'=>'1');
+            $popoverContent = "<p>Adding a new allocation table entry when needed (no entry available in stratum) <strong>is possible</strong> for this randomization.</p>";
+            switch ($extendOption) {
+                case static::EXTEND_CB_CHECKED: 
+                    $cbExtendProps['checked'] = 'checked';
+                    break;
+                case static::EXTEND_CB_UNCHECKED: 
+                    break;
+                case static::EXTEND_CB_DISABLED: 
+                default:
+                    $cbExtendProps['disabled'] = 'disabled';
+                    $cbExtendProps['title'] = 'Not available for this type of model and randomization option';
+                    $popoverContent = "<p>Adding a new allocation table entry when needed (no entry available in stratum) is <strong>not possible</strong> for this randomization.</p>";
+                    $labelClass = 'text-muted font-weight-normal';
+                    break;
+            }
+            $popoverContent .= '<ul><li><i class="fas fa-envelope-open text-success mr-1"></i>'.\RCView::tt('random_161').': Can add new allocation table entries only with dynamic group allocation (minimization).</li>';
+            $popoverContent .= '<li><i class="fas fa-envelope text-danger mr-1"></i>'.\RCView::tt('random_162').': Can add new allocation table entries when needed. Randomization number will be incremented from stratum maximum.</li></ul>';
+            $extendTableMarkup = 
+                \RCView::span(array('class'=>"$labelClass mr-2", 'style'=>'display:inline-block;min-width:120px;'), \RCView::span(array(),"Auto-extend allocation table?")) . 
+                \RCView::input($cbExtendProps).
+                \RCView::a(array('class'=>'extrnd-auto-extend-info ml-2', 'style'=>'color:#006', 'data-bs-toggle'=>'popover', 'data-bs-trigger'=>'focus', 'data-bs-placement'=>'top', 'data-bs-title'=>'Auto-Extend Allocation Table', 'data-bs-content'=>$popoverContent, 'role'=>'button', 'tabindex'=>'0'),
+                    '<i class="fa-solid fa-info-circle"></i>'
+                );
+
+        $container = \RCView::div(array('id'=>'extrnd-opt-config-'.$randomiserName, 'class'=>'extrnd-opt-config extrnd-init-hidden'),
             \RCView::p(array(), $description).
+            \RCView::p(array(), $extendTableMarkup).
             \RCView::div(array(), $settingsForm)
         );
+        return $container;
     }
 
     public function validateConfigSettings(array &$settings) {

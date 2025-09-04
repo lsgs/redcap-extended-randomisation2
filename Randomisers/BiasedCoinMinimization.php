@@ -17,11 +17,13 @@ namespace MCRI\ExtendedRandomisation2;
 class BiasedCoinMinimization extends AbstractRandomiser {
     public const USE_WITH_OPEN = true;
     public const USE_WITH_CONCEALED = true;
+    public const EXTEND_ALLOC_TABLE_ENTRY_OPEN = true;
+    public const EXTEND_ALLOC_TABLE_ENTRY_CONCEALED = true;
     protected const LABEL = 'Biased coin minimization';
     protected const DESC = "Dynamic randomization via the biased coin minimization algorithm described in this paper:<blockquote style='border-left:solid 3px #ddd;padding-left:1em;'>Han, B., Enas, N. H., & McEntegart, D. (2009). Randomization by minimization for unbalanced treatment allocation. <i>Statistics in medicine, 28</i>(27), 3329–3346. <a target='_blank' href='https://doi.org/10.1002/sim.3710'>https://doi.org/10.1002/sim.3710</a></blockquote><p>This biased coin minimization algorithm is suitable for use with either equal or unequal group allocation ratios.</p><p><strong>Allocation mechanism:</strong> The minimization algorithm calculates the group to assign dynamically, then updates the value on the allocation table entry being allocated to the record. Allocation tables may be generated with valid value as the group: whatever the table contains will be overwritten by the selected group upon allocation.<p><strong>Allocation tables/Dashboard view:</strong> For an improved Dashboard view, consider generating your allocation table with a dummy, placeholder value for the allocation group. Include this dummy group in your allocation field and specify an allocation ratio of <code>0</code>. Allocation table entries will be switched from the placeholder value to their real allocation group as they are allocated.</p></p><p><strong>Production status:</strong> Settings for strata weighting, allocation ratios, and base allocation probability are editable here only while the project is in Development status or no records have yet been randomized. The logging field setting may be altered as needed.</p>";
     protected const DEFAULT_ASSIGNMENT_PROB = 0.7;
     protected const DEFAULT_OVERALL_REF = 'OVERALL';
-    public static $ProdEditableSettings = array('logging_field');
+    public static $ProdEditableSettings = array('rand-extend-table','logging_field');
     
     protected $factor_weights;
     protected $allocation_ratios;

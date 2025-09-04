@@ -85,6 +85,12 @@
                     "type": "text"
                 },
                 {
+                    "key": "rand-extend-table",
+                    "name": "Auto-extend allocation table entry if exhausted (not available for all allocation types)",
+                    "required": false,
+                    "type": "checkbox"
+                },
+                {
                     "key": "rand-config",
                     "name": "Randomization configuration settings",
                     "required": false,

@@ -310,6 +310,12 @@ class ExtendedRandomisation2 extends AbstractExternalModule
                 $('#extrnd-opt-config-'+module.randomiser).find('input,select').on('change', module.configEdited);
                 $('#extrnd-opt-save').prop('disabled', true).on('click', module.saveRandomiserConfig);
                 $('#extrnd-step5div').insertAfter('#step4div').show();
+                const popoverTriggerList = $('a.extrnd-auto-extend-info[data-bs-toggle="popover"]');
+                const popoverList = [...popoverTriggerList].map(triggerEl => new bootstrap.Popover(triggerEl, {
+                        html: true,
+                        sanitize: false,
+                        trigger: 'focus'
+                    }));
             };
             $(document).ready(function(){
                 module.init();
@@ -349,8 +355,9 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             if ( ( $attrs['isBlinded'] && $classname::USE_WITH_CONCEALED) ||
                  (!$attrs['isBlinded'] && $classname::USE_WITH_OPEN) )  {
                 $availableOptions[$randomiser->getConfigOptionName()] = $randomiser->getConfigOptionLabel();
+                $extendOption = $randomiser->getExtendAllocationTableOption();
+                $configMarkup .= $randomiser->getConfigOptionMarkup( $extendOption );
             }
-            $configMarkup .= $randomiser->getConfigOptionMarkup( ($thisRandomiserName==$randomiserName) ? $currentSettings : array() );
         }
         return array($availableOptions, $configMarkup);
     }
@@ -531,7 +538,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             #extrnd-infocontainer  { width:950px;max-width:950px;margin:0;padding:0; }
             #extrnd-batchcontainer { width:950px;max-width:950px;margin:0; }
             .dataTables_filter { float: left !important; }
-            .extrnd-chart { border-bottom: solid 1px #ddd; }
+            .extrnd-chart { border-top: solid 2px #bbb; }
         </style>
         <script type="text/javascript">
             let module = <?=$this->getJavascriptModuleObjectName()?>;
@@ -805,14 +812,14 @@ class ExtendedRandomisation2 extends AbstractExternalModule
                     }
                 }
                 if (!is_null($row["group_id"])) {
-                    $thisEntryStrat[] = "group_id=".$row["group_id"];
+                    $thisEntryStrat[] = "group_by-".$row["group_id"];
                 }
+                $stratumCombo = implode('&',$thisEntryStrat);
+                $stratumIndex = array_search($stratumCombo, $ra['strataSourceCombos']);
 
                 foreach ($charts as $chart) {
-                    $stratumIndex = array_search(implode('&',$thisEntryStrat), $ra['strataSourceCombos']);
                     if ($chart->ref == 'all' || $chart->ref == "strat$stratumIndex") {
                         $chart->group_counts[$grpIndex]++;
-                        if ($chart->ref != 'all') break;
                     }
                 }
             }
@@ -857,25 +864,32 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             $comboTitle = '';
             $comboExpr = '';
             foreach(explode('&',$comboString) as $cs) {
-                list($comboSource, $comboSourceLevel) = explode('-', $cs, 2);
+                list($comboSource, $comboSourceLevel) = explode('-', $cs, 2);  // e.g. source_field1-1 -> [source_field1, 1]
                 $found = false;
                 foreach($ra['stratFields'] as $sf) {
-                    foreach($sf['levels'] as $lvl => $lvlLbl) {
-                        if ($lvl == $comboSourceLevel) {
-                            $found = true;
-                            $comboTitle .= \RCView::b($this->formatLabel($sf['field_label'])).' '.$this->formatLabel($lvlLbl).'<br>';
-                            if ($sf['field_name']=='redcap_data_access_group') {
-                                $lvl = \REDCap::getGroupNames(true, $lvl); // convert id to unique name for expr
-                                $comboExpr .= "[record-dag-name] = '$lvl' and ";
-                            } else {
-                                $comboExpr .= "[{$sf['field_name']}] = '$lvl' and ";
+                    $sfSourceField = 'source_field'.$sf['source_field'];
+                    $sfFieldName = $sf['field_name'];
+                    if ($sfSourceField ==  $comboSource || ($sfFieldName=='redcap_data_access_group' && $comboSource=='group_by')) {
+                        foreach($sf['levels'] as $lvl => $lvlLbl) {
+                            if ($lvl == $comboSourceLevel) {
+                                $found = true;
+                                $stratFldLabel = $this->formatLabel($sf['field_label']);
+                                $stratLvlLabel = $this->formatLabel($lvlLbl);
+                                if ($sfFieldName=='redcap_data_access_group') {
+                                    $lvl = \REDCap::getGroupNames(true, $lvl); // convert id to unique name for expr
+                                    $comboExpr .= "[record-dag-name] = '$lvl' and ";
+                                } else {
+                                    $comboExpr .= "[{$sfFieldName}] = '$lvl' and ";
+                                }
+                                $comboTitle .= '<span class="badge bg-secondary mr-2">['.$sfFieldName.'] = "'.$lvl.'"</span>'.\RCView::b($stratFldLabel).': '.$stratLvlLabel.'<br>';
+                                break;
                             }
-                            continue;
                         }
                     }
-                    if ($found) continue;
+                    if ($found) break;
                 }
             }
+
             $comboExpr = '<code>'.trim($comboExpr, ' and ').'</code>';
             $stratChart->title = $comboTitle.$comboExpr;
             $charts[] = $stratChart;
@@ -1010,7 +1024,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
     protected function makeRandomiser($randomization_id, bool $applyConfig=true): ?AbstractRandomiser {
         list($thisRidKey, $randomiserType, $thisRandConfigText) = $this->getRandConfigSettings($randomization_id);
 
-        if (is_null($thisRidKey) || $randomiserType===self::REDCAP_DEFAULT) return null; // no EM config this rand
+        if (is_null($thisRidKey)) return null; // no EM config this rand
         
         if (file_exists(dirname(__FILE__)."/Randomisers/$randomiserType.php")) {
             require_once "Randomisers/$randomiserType.php";
@@ -1028,23 +1042,25 @@ class ExtendedRandomisation2 extends AbstractExternalModule
      * getRandConfigSettings
      * Read the module config settings for the specified randomisation
      * @param $rid The unique randomisation id to read the module settings for
-     * @return array (int key in config array or false if not yet present; string randomiser class name; string config text or empty)
+     * @return array (int key in config array or false if not yet present; string randomiser class name; string config text or empty; bool alloctable extend option)
      */
     public function getRandConfigSettings($rid) : array {
         $randConfig = $this->getSubSettings('project-rand-config');
         $rtnKey = null;
         $rtnClass = '';
         $rtnText = '';
+        $rtnExtend = false;
         foreach($randConfig as $key => $randSettings) {
             $thisRid = $randSettings['rand-id'];
             if ($rid==$thisRid) {
                 $rtnKey = $key;
                 $rtnClass = $randSettings['rand-class'];
                 $rtnText = $randSettings['rand-config'];
+                $rtnExtend = (bool)$randSettings['rand-extend-table'];
                 break;
             }
         }
-        return array($rtnKey,$rtnClass,$rtnText);
+        return array($rtnKey,$rtnClass,$rtnText,$rtnExtend);
     }
 
     /**
@@ -1120,6 +1136,16 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             }
     
             $randomiser = new $classname($rid, $this, false);
+
+            if ($randomiser->canExtendTable() 
+                    && array_key_exists('extrnd-extend-table', $payload)
+                    && $payload['extrnd-extend-table']=='1') {
+                $extendTable = true;
+                unset($payload['extrnd-extend-table']); // remove before validate() because now validated
+            } else {
+                $extendTable = false;
+            }
+
             $validate = $randomiser->validateConfigSettings($payload);
             if ($validate!==true) {
                 throw new \Exception($validate);
@@ -1142,6 +1168,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
                 $project_settings['project-rand-config'][$settingIndex] = 'true';
                 $project_settings['rand-id'][$settingIndex] = "$rid";
                 $project_settings['rand-class'][$settingIndex] = $randomiserName;
+                $project_settings['rand-extend-table'][$settingIndex] = $extendTable;
                 $project_settings['rand-config'][$settingIndex] = (empty($payload)) ? '' : \json_encode($payload, JSON_FORCE_OBJECT);
             } else if (!empty($payload) && count($randomiser::$ProdEditableSettings) > 0) {
                 // allow changes to only these properties

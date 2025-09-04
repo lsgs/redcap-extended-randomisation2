@@ -13,8 +13,11 @@ namespace MCRI\ExtendedRandomisation2;
 class RandomInteger extends AbstractRandomiser {
     public const USE_WITH_OPEN = true;
     public const USE_WITH_CONCEALED = true;
+    public const EXTEND_ALLOC_TABLE_ENTRY_OPEN = false;
+    public const EXTEND_ALLOC_TABLE_ENTRY_CONCEALED = true;
     protected const LABEL = 'Random Integer';
     protected const DESC = 'Generate a random integer between the specified min and max';
+    public static $ProdEditableSettings = array('rand-extend-table');
 
     protected $min;
     protected $max;

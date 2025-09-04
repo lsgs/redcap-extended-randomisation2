@@ -13,10 +13,15 @@ namespace MCRI\ExtendedRandomisation2;
 class REDCapDefault extends AbstractRandomiser {
     public const USE_WITH_OPEN = true;
     public const USE_WITH_CONCEALED = true;
+    public const EXTEND_ALLOC_TABLE_ENTRY_OPEN = false;
+    public const EXTEND_ALLOC_TABLE_ENTRY_CONCEALED = true;
     protected const LABEL = 'REDCap Default';
     protected const DESC = 'The <em>Extended Randomization</em> external module will not be active for this randomization. Randomization will be performed using REDCap\'s standard randomization mechanism.';
-    
-    public function randomise() { }
+    public static $ProdEditableSettings = array('rand-extend-table');
+
+    public function randomise() { 
+        return null; // return and let default randomisation process proceed
+    }
     protected function getConfigOptionMarkupFields(): string { return ''; }
     protected function updateRandomisationState(array $stratification, int $allocation) { }
 }

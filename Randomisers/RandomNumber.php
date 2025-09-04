@@ -13,8 +13,11 @@ namespace MCRI\ExtendedRandomisation2;
 class RandomNumber extends AbstractRandomiser {
     public const USE_WITH_OPEN = true;
     public const USE_WITH_CONCEALED = true;
+    public const EXTEND_ALLOC_TABLE_ENTRY_OPEN = false;
+    public const EXTEND_ALLOC_TABLE_ENTRY_CONCEALED = true;
     protected const LABEL = 'Random Number (0-1)';
     protected const DESC = 'Generate a random number floating point number between 0 and 1.';
+    public static $ProdEditableSettings = array('rand-extend-table');
 
     public function randomise() {
         $r = $this->getRandomNumber();
