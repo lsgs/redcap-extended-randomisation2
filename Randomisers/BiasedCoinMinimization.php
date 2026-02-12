@@ -58,6 +58,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
         }
 
         if ($applyConfig) $this->applySavedConfig();
+        $this->fields_no_overwrite_empty[] = $this->logging_field;
     }
 
     public function applySavedConfig(): void {

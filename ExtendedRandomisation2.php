@@ -64,9 +64,35 @@ class ExtendedRandomisation2 extends AbstractExternalModule
      */
     public function redcap_every_page_before_render($project_id) {
         if (!defined('PAGE')) return;
-        if (!isset($_POST['action'])) return;
-        if (PAGE=='Randomization/save_randomization_setup.php' && $_POST['action']=='erase') $this->removeRidModuleConfig($project_id);
-        if (PAGE=='ProjectGeneral/erase_project_data.php' && $_POST['action']=='erase_data') $this->resetModuleState($project_id);
+        if (isset($_POST['submit-action']) ) {
+            if (in_array($_POST['submit-action'], array('submit-btn-saverecord','submit-btn-savecontinue','submit-btn-savenextrecord','submit-btn-saveexitrecord'))) {
+                $this->applyFieldProtection();
+            }
+            
+        } else if (isset($_POST['action'])) {
+            if (PAGE=='Randomization/save_randomization_setup.php' && $_POST['action']=='erase') $this->removeRidModuleConfig($project_id);
+            if (PAGE=='ProjectGeneral/erase_project_data.php' && $_POST['action']=='erase_data') $this->resetModuleState($project_id);
+        }
+    }
+
+    /**
+     * applyFieldProtection()
+     * Do not allow fields capturing logging of randomisation algorithm to be overwritten with empty text value during regular saves. 
+     * (E.g. when saving a randomisation form after a randomise ajax call.)
+     */
+    protected function applyFieldProtection(): void {
+        $projectRandomisations = \Randomization::getAllRandomizationAttributes();
+        foreach (array_keys($projectRandomisations) as $rid) {
+            list($thisRidKey, $randomiserType, $thisRandConfigText) = $this->getRandConfigSettings($rid);
+            if (!empty($randomiserType) && $randomiserType != self::REDCAP_DEFAULT) {
+                $thisRandomiser = $this->makeRandomiser($rid, true);
+                foreach ($thisRandomiser->getProtectedFields() as $protectedField) {
+                    if (isset($_POST[$protectedField]) && $_POST[$protectedField]=='') {
+                        unset($_POST[$protectedField]);
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -930,7 +956,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
      * Enhanced version of \Randomization::getRandomizationAttributes($rid) also capturing allocation groups and unique strata combinations
      */
     public function getRandAttrs($rid) {
-        if (!isset($this->randAttrs)) {
+        if (!isset($this->randAttrs) || $rid !== $this->randAttrs['randomization_id']) {
             global $Proj;
             $this->randAttrs = \Randomization::getRandomizationAttributes($rid);
             if ($this->randAttrs===false) return false;

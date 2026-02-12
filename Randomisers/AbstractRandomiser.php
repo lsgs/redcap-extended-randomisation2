@@ -37,6 +37,7 @@ abstract class AbstractRandomiser {
     protected $seedSequence = null;
     protected $ridTotal = 0;
     protected $extend_allocation_table = false;
+    protected $fields_no_overwrite_empty = array(); // don't allow these fields to be overwritten with empty string on regular save (e.g. logging fields)
     public static $ProdEditableSettings = array(); // any settings that are editable in prod
 
     public static function getClassNameWithoutNamespace() { return str_replace(__NAMESPACE__ . '\\', '', get_called_class()); }
@@ -53,6 +54,9 @@ abstract class AbstractRandomiser {
         } else {
             return static::EXTEND_CB_DISABLED;
         }
+    }
+    public function getProtectedFields(): array {
+        return $this->fields_no_overwrite_empty;
     }
     abstract protected function getConfigOptionMarkupFields(): string;
 
