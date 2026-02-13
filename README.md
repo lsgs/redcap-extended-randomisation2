@@ -68,7 +68,7 @@ Dynamic randomization via the biased coin minimization algorithm with customizab
  * Concealed allocation: specify an array of groups/ratios in JSON format, e.g.<br>
  `[{"group":"A","ratio":1},{"group":"B","ratio":1}]`
 * **Base assignment probability**: the probability (0-1) that the group calculated to minimize the allocation imbalance will actually be assigned to the randomized record. Typically around 0.7. (0 would mean the preferred group would *never* be assigned; 1 would mean the preferred group would *always* be assigned.)
-* **Logging field**: select a notes-type field from the target event into which full logging of the minimization and assignment calculations will be recorded.
+* **Logging field**: select a notes-type field from the target event into which full logging of the minimization and assignment calculations will be recorded. Note: from v1.2.0 **this field is protected from being overwritten with a blank value**, such as when the logging field is on the same form as the randomization field and the form is saved following randomization (where the logging has been captured during the asynchronous randomization event, but the field is empty in the user's view of the form when they click "Save").
 
 *Production Status Configuration Changes:*
 
