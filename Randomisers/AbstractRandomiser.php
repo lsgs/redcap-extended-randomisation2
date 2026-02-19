@@ -178,7 +178,7 @@ abstract class AbstractRandomiser {
 			if (!in_array($field, $criteriaFields)) throw new \Exception("Could not extend allocation table: incomplete stratification ($field missing)");
 		}
 		// Validate group_id
-        if ($this->attrs['group_id'] == 'DAG') {
+        if ($this->attrs['group_by'] == 'DAG') {
 		    $group_id = intval($group_id ?? 0);
             if ($group_id < 1) throw new \Exception("Could not extend allocation table: incomplete stratification (group_id missing)");
         } else {
@@ -237,10 +237,10 @@ abstract class AbstractRandomiser {
      * incrementRandnoValue()
      * Increment trailing digits on a string: "R1-1 -> R1-2"
      * If param is empty or has no trailing digits then return empty string.
-     * @param string $value
+     * @param ?string $value_to_increment
      * @return string $value_with_increment
      */
-    protected function incrementRandnoValue(string $value): string {
+    protected function incrementRandnoValue(?string $value): string {
         if (empty($value)) return '';
         // increment trailing digits
         $matches = array();

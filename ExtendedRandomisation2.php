@@ -37,7 +37,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             }
 
         } catch (\Throwable $th) {
-            $result = "An error occurred in randomization id $randomization_id ";
+            $result = "An error occurred in randomization id $randomization_id. Refer to module logging for more details.";
             $this->logError($randomization_id, $result, $record, $th);
         }
         return $result;
@@ -1411,7 +1411,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
         \REDCap::logEvent($this->getModuleName(), $message.PHP_EOL.'See external module log for more information.', '', $record, $randAttr['targetEvent'], $project_id);
         $this->log($message. (is_null($th) ? '' : PHP_EOL.$th->getMessage().PHP_EOL.$th->getTraceAsString()));
 
-        $failEmails = array_filter($this->getProjectSetting('fail-alert-email'), static function($var){return $var !== null;} );
+        $failEmails = array_filter($this->getProjectSetting('fail-alert-email')??array(), static function($var){return $var !== null;} );
         if (sizeof($failEmails)>0) {
             global $project_contact_email;
             $subject = "Extended Randomization External Module Error (pid=$project_id)";
