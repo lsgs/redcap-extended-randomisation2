@@ -80,7 +80,8 @@ abstract class AbstractRandomiser {
         $names = array(self::REDCAP_DEFAULT);
         $dir = dirname(__FILE__);
         foreach (glob("$dir/*.php") as $path) {
-            $filename = array_pop(explode('/',$path));
+            $path_parts = explode('/',$path);
+            $filename = array_pop($path_parts);
             $classname = str_replace('.php','',$filename);
             if ($classname!='AbstractRandomiser' && $classname!=self::REDCAP_DEFAULT) {
                 require_once $path;
@@ -256,13 +257,12 @@ abstract class AbstractRandomiser {
 
     /**
      * getRandomNumber()
-     * Get a random number in the range specified, optionally rounded down to whole number
+     * Get a random floating point number in the range specified
      * @param int $min
      * @param int $max
-     * @param bool $returnFloorInt
      * @return float
      */
-    public function getRandomNumber(int $min=0, int $max=1, bool $returnFloorInt=false): float {
+    public function getRandomNumber(int $min=0, int $max=1): float {
         $min = ($min>$max) ? $max : $min;
         $max = ($min>$max) ? $min : $max;
 
@@ -272,14 +272,34 @@ abstract class AbstractRandomiser {
             // if seed specified then use the nth in sequence corresponding to seed, then increment stored counter
             mt_srand($this->seed);
             $this->seedSequence++;
-            for ($i=0; $i < $this->seedSequence; $i++) { 
+            $i=0;
+            do { 
                 $rn = (float)mt_rand();
-            }
+                $i++;
+            } while ( $i < $this->seedSequence );
             $this->module->setProjectSetting('seed-sequence', "{$this->seedSequence}");
         }
 
         $out = $min + (($max-$min) * $rn/(float)mt_getrandmax());
-        return ($returnFloorInt) ? floor($out) : $out;
+        return $out;
+    }
+
+    /**
+     * getRandomInteger()
+     * Get a random integer number in the range specified
+     * @param int $min
+     * @param int $max
+     * @return int
+     */
+    public function getRandomInteger(int $min=0, int $max=1): int {
+        $min = ($min>$max) ? $max : $min;
+        $max = ($min>$max) ? $min : $max;
+
+        $rn = $this->getRandomNumber(0, 1);
+        $range_len = ($max - $min) + 1; 
+        $out = floor($rn * $range_len) + $min;
+
+        return $out;
     }
 
     protected function moduleLogEvent($message) {
@@ -302,7 +322,7 @@ abstract class AbstractRandomiser {
     }
 
     protected static function makeConfigOptionMarkup($randomiserName, $description, $settingsForm, $extendOption): string {
-        
+            $labelClass = '';
             $cbExtendProps = array('type'=>'checkbox','name'=>'extrnd-extend-table','value'=>'1');
             $popoverContent = "<p>Adding a new allocation table entry when needed (no entry available in stratum) <strong>is possible</strong> for this randomization.</p>";
             switch ($extendOption) {

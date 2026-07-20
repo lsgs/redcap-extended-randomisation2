@@ -36,7 +36,7 @@ class RandomGroup extends AbstractRandomiser {
 
         if (sizeof($remainingAid)===0) return '0';
 
-        $randomAidIdx = $this->getRandomNumber(0, sizeof($remainingAid), true);
+        $randomAidIdx = $this->getRandomInteger(0, sizeof($remainingAid));
         $randomAid = $remainingAid[$randomAidIdx]['aid'];
 
         $this->moduleLogEvent("Randomly selected available allocation id is $randomAid");

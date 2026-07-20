@@ -634,7 +634,7 @@ class BiasedCoinMinimization extends AbstractRandomiser {
                     }
                 }
             }
-            $indexToPick = $this->getRandomNumber(0, count($choicesInRatio)-1, true);
+            $indexToPick = $this->getRandomInteger(0, count($choicesInRatio)-1);
             $a = (string)$choicesInRatio[$indexToPick];
             $this->addLogStep("--Random selection: index $indexToPick from [".implode(',', $choicesInRatio)."] = group $a ");
         }
