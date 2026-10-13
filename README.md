@@ -128,13 +128,13 @@ Rather than selecting the next available entry from the allocation table in sequ
 
 Configure extended options for your randomization models via an additional step ("**STEP 5**") on the Randomization Setup page: 
 
-> <img alt="Randomization Setup: Additional Step 5" src="https://redcap.mcri.edu.au/surveys/index.php?pid=14961&__passthru=DataEntry%2Fimage_view.php&doc_id_hash=ca08ca65a2b626c45f3095c1c161c8961122fafa&id=2078022&s=wAPCzBwv8sJKMRvb&page=file_page&record=6&event_id=47634&field_name=thefile&instance=1" />
+> <img alt="Randomization Setup: Additional Step 5" src="images/setup-step5.png" />
 
 ### Randomization Models Summary Page
 
 Randomization models configured to use one of the additional allocation options get an indicator icon on the Randomization Summary page:
 
-> <img alt="Randomization Summary Indicator Icons" src="https://redcap.mcri.edu.au/surveys/index.php?pid=14961&__passthru=DataEntry%2Fimage_view.php&doc_id_hash=972c822243ad5ae3a1c96419ef710bf97f140654&id=2078023&s=CTgjBX5Evtdrkbof&page=file_page&record=7&event_id=47634&field_name=thefile&instance=1" />
+> <img alt="Randomization Summary Indicator Icons" src="images/rand-summary.png" />
 
 ### Batch Randomization
 
@@ -144,4 +144,4 @@ Select the records to randomize and they will be randomized in sequence, with th
 
 The Batch Randomization page is available automatically when the module is enabled and the project is in Development status, but must be enabled for Production use in the project by your administrator.
 
-> <img alt="Batch Randomization" src="https://redcap.mcri.edu.au/surveys/index.php?pid=14961&__passthru=DataEntry%2Fimage_view.php&doc_id_hash=ed580a8200cab56d0ce70bbab13ac956d992aa0f&id=2078025&s=JWn4GmNJGjcZY4x6&page=file_page&record=8&event_id=47634&field_name=thefile&instance=1" />
+> <img alt="Batch Randomization" src="images/batch-rand.png" />
