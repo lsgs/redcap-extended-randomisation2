@@ -757,10 +757,11 @@ class BiasedCoinMinimization extends AbstractRandomiser {
             $this->randomisation_state[$factor][$level][$group]++;
         }
 
-        $project_settings = $this->module->getProjectSettings($this->project_id);
+        $stateAllRand = $this->module->getProjectSetting('rand-state');
+        if (!is_array($stateAllRand)) $stateAllRand = array();
 
-        $project_settings['rand-state'][$this->config_current_index] = \json_encode($this->randomisation_state, JSON_FORCE_OBJECT);
+        $stateAllRand[$this->config_current_index] = \json_encode($this->randomisation_state, JSON_FORCE_OBJECT);
 
-        $this->module->setProjectSettings($project_settings, $this->project_id);
+        $this->module->setProjectSetting('rand-state', $stateAllRand);
     }
 }

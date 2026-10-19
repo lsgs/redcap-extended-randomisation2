@@ -224,6 +224,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
             $extRndOpt = '';
             $extRndOptsConfig = '';
             $ridConfig = array();
+            $hasEditableSettings = false;
         } else {
             $attrs = \Randomization::getRandomizationAttributes($rid);
             $opacity = '';
@@ -402,7 +403,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
         }
         if (!$batchEnabled && !static::SHOW_DISABLED_BATCH_TAB) return;
 
-        $url = $this->getUrl('batch.php',false,false).'&rid='.intval($rid);
+        $url = (string)$this->getUrl('batch.php',false,false).'&rid='.intval($rid);
         ?>
         <style type="text/css">
             .extrnd-tab-diabled { opacity: 50%; }
@@ -467,6 +468,8 @@ class ExtendedRandomisation2 extends AbstractExternalModule
                 \RCView::tt('random_170').\RCView::tt('colon'). ' '.
                 \RCView::span(array('class'=>'font-weight-bold'), $Proj->eventInfo[$randAttr['targetEvent']]['name_ext'])
             );
+        } else {
+            $targetDiv = '';
         }
 
         $targetField = $randAttr['targetField'];
@@ -745,10 +748,10 @@ class ExtendedRandomisation2 extends AbstractExternalModule
 
         $targetArm = $Proj->eventInfo[$randAttrs['targetEvent']]['arm_num'];
         $crlByArm = \Records::getCustomRecordLabelsSecondaryFieldAllRecords(array_keys($recordsToRandomise), true, $targetArm);
+        $recordStrata = array();
         
         if ($stratified) {
             $dags = \REDCap::getGroupNames(true);
-            $recordStrata = array();
             $fields = array_keys($randAttrs['strata']);
             $fields[] = $pk;
             $stratumData = \REDCap::getData(array(
@@ -931,7 +934,7 @@ class ExtendedRandomisation2 extends AbstractExternalModule
 	public function renderTabs($rid)
 	{
 		global $user_rights,$project_id;
-        $url = $this->getUrl('batch.php',false,false)."&rid=$rid";
+        $url = (string)$this->getUrl('batch.php',false,false)."&rid=$rid";
         $url = substr($url, strpos($url, 'ExternalModules/'));
         $url = str_replace('&pid='.$project_id,'',$url);
         $url = str_replace('ExternalModules/?','ExternalModules/index.php?',$url);
